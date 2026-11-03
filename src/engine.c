@@ -1297,215 +1297,173 @@ const int castling_rights[64] = {
 static inline int make_move(int move)
 {
     copy_board();
-        int source_square = get_move_source(move);
-        int target_square = get_move_target(move);
-        int piece = get_move_piece(move);
-        int promoted_piece = get_move_promoted(move);
-        int capture_flag = get_move_capture(move);
-        int double_push_flag = get_move_double_push(move);
-        int enpassant_flag = get_move_enpassant(move);
-        int castling_flag = get_move_castling(move);
 
-        // move piece
-        pop_bit(bitboards[piece], source_square);
-        set_bit(bitboards[piece], target_square);
+    int source_square = get_move_source(move);
+    int target_square = get_move_target(move);
+    int piece = get_move_piece(move);
+    int promoted_piece = get_move_promoted(move);
+    int capture_flag = get_move_capture(move);
+    int double_push_flag = get_move_double_push(move);
+    int enpassant_flag = get_move_enpassant(move);
+    int castling_flag = get_move_castling(move);
 
-        // hash piece (remove piece from source square and put it on target square)
-        hash_key ^= piece_keys[piece][source_square];
-        hash_key ^= piece_keys[piece][target_square];
+    // side that is making the move (do NOT call this "side": it would shadow the global)
+    int us = piece <= piece_K ? white : black;
+    int them = us ^ 1;
 
-        // handle captures
-        if (capture_flag)
+    // move piece
+    pop_bit(bitboards[piece], source_square);
+    set_bit(bitboards[piece], target_square);
+    hash_key ^= piece_keys[piece][source_square];
+    hash_key ^= piece_keys[piece][target_square];
+
+    // handle captures
+    if (capture_flag)
+    {
+        int start_piece = (us == white) ? piece_p : piece_P;
+        int end_piece   = (us == white) ? piece_k : piece_K;
+        for (int bb_piece = start_piece; bb_piece <= end_piece; bb_piece++)
         {
-            int start_piece, end_piece;
-            if (side == white)
+            if (get_bit(bitboards[bb_piece], target_square))
             {
-                start_piece = piece_p;
-                end_piece = piece_k;
-            }
-            else
-            {
-                start_piece = piece_P;
-                end_piece = piece_K;
-            }
-            for (int bb_piece = start_piece; bb_piece <= end_piece; bb_piece++)
-            {
-                if (get_bit(bitboards[bb_piece], target_square))
-                {
-                    pop_bit(bitboards[bb_piece], target_square);
-
-                    // hash: remove piece from hash
-                    hash_key ^= piece_keys[bb_piece][target_square];
-                    break;
-                }
+                pop_bit(bitboards[bb_piece], target_square);
+                hash_key ^= piece_keys[bb_piece][target_square];
+                break;
             }
         }
+    }
 
-        // pawn promotions
-        if (promoted_piece != 0)
+    // pawn promotions
+    if (promoted_piece != 0)
+    {
+        int pawn = (us == white) ? piece_P : piece_p;
+        pop_bit(bitboards[pawn], target_square);
+        hash_key ^= piece_keys[pawn][target_square];
+
+        set_bit(bitboards[promoted_piece], target_square);
+        hash_key ^= piece_keys[promoted_piece][target_square];
+    }
+
+    // enpassant capture
+    if (enpassant_flag)
+    {
+        if (us == white)
         {
-            //pop_bit(bitboards[(side == white) ? piece_P : piece_p], target_square);
-            if (side == white)
-            {
-                pop_bit(bitboards[piece_P], target_square);
-
-                // hash pawn (remove)
-                hash_key ^= piece_keys[piece_P][target_square];
-            }
-            else
-            {
-                pop_bit(bitboards[piece_p], target_square);
-
-                // hash pawn (remove)
-                hash_key ^= piece_keys[piece_p][target_square];
-            }
-
-            set_bit(bitboards[promoted_piece], target_square);
-            // hash promoted piece (add)
-            hash_key ^= piece_keys[promoted_piece][target_square];
-        }
-
-        // enpassant
-        if (enpassant_flag)
-        {
-            if (side == white)
-            {
-                pop_bit(bitboards[piece_p], target_square + 8);
-
-                // hash pawn (remove)
-                hash_key ^= piece_keys[piece_p][target_square + 8];
-            }
-            else
-            {
-                pop_bit(bitboards[piece_P], target_square - 8);
-                // hash pawn (remove)
-                hash_key ^= piece_keys[piece_P][target_square - 8];
-            }
-        }
-
-        // hash enpassant (remove)
-        if (enpassant != no_sq)
-        {
-            hash_key ^= enpassant_keys[enpassant];
-        }
-
-        enpassant = no_sq;
-
-        // double pawn push
-        if (double_push_flag)
-        {
-            if (side == white)
-            {
-                enpassant = target_square + 8;
-
-                // hash enpassant
-                hash_key ^= enpassant_keys[target_square + 8];
-            }
-            else
-            {
-                enpassant = target_square - 8;
-
-                // hash enpassant
-                hash_key ^= enpassant_keys[target_square - 8];
-            }
-        }
-
-        // castling
-        if (castling_flag)
-        {
-            switch (target_square)
-            {
-                case g1: // wk
-                    pop_bit(bitboards[piece_R], h1);
-                    set_bit(bitboards[piece_R], f1);
-
-                    // hash rook
-                    hash_key ^= piece_keys[piece_R][h1];
-                    hash_key ^= piece_keys[piece_R][f1];
-                    break;
-                case c1: // wq
-                    pop_bit(bitboards[piece_R], a1);
-                    set_bit(bitboards[piece_R], d1);
-
-                    // hash rook
-                    hash_key ^= piece_keys[piece_R][a1];
-                    hash_key ^= piece_keys[piece_R][d1];
-                    break;
-                case g8: // bk
-                    pop_bit(bitboards[piece_r], h8);
-                    set_bit(bitboards[piece_r], f8);
-
-                    // hash rook
-                    hash_key ^= piece_keys[piece_r][h8];
-                    hash_key ^= piece_keys[piece_r][f8];
-                    break;
-                case c8: // bq
-                    pop_bit(bitboards[piece_r], a8);
-                    set_bit(bitboards[piece_r], d8);
-
-                    // hash rook
-                    hash_key ^= piece_keys[piece_r][a8];
-                    hash_key ^= piece_keys[piece_r][d8];
-                    break;
-            }
-        }
-
-        // hash castling (remove rights)
-        hash_key ^= castle_keys[castle];
-
-        // update castling rights
-        castle &= castling_rights[source_square];
-        castle &= castling_rights[target_square];
-
-        // hash castling (reassign rights)
-        hash_key ^= castle_keys[castle];
-
-        // update occupancies
-        memset(occupancies, 0ULL, 24);
-        for (int bb_piece = piece_P; bb_piece <= piece_K; bb_piece++)
-        {
-            occupancies[white] |= bitboards[bb_piece];
-        }
-        for (int bb_piece = piece_p; bb_piece <= piece_k; bb_piece++)
-        {
-            occupancies[black] |= bitboards[bb_piece];
-        }
-        occupancies[both] |= occupancies[white];
-        occupancies[both] |= occupancies[black];
-
-        // change side
-        side ^= 1;
-
-        // hash side
-        hash_key ^= side_key;
-
-        // DEBUG: incremental hash key update
-
-        /*
-        U64 hash_from_scratch = generate_hash_keys();
-        if (hash_key != hash_from_scratch)
-        {
-            printf(" Make move\n");
-            printf("move: ");
-            print_move(move);
-            print_board();
-            printf("hash key should be: %llx\n", hash_from_scratch);
-            getchar();
-        }
-         */
-
-        // debug end //
-
-        // make sure is not in check
-        if (is_square_attacked((side == white) ? get_ls1b_index(bitboards[piece_k]) : get_ls1b_index(bitboards[piece_K]), side))
-        {
-            restore_board();
-            return 0;
+            pop_bit(bitboards[piece_p], target_square + 8);
+            hash_key ^= piece_keys[piece_p][target_square + 8];
         }
         else
         {
-            return 1;
+            pop_bit(bitboards[piece_P], target_square - 8);
+            hash_key ^= piece_keys[piece_P][target_square - 8];
         }
+    }
+
+    // hash enpassant (remove)
+    if (enpassant != no_sq)
+    {
+        hash_key ^= enpassant_keys[enpassant];
+    }
+    enpassant = no_sq;
+
+    // double pawn push
+    if (double_push_flag)
+    {
+        enpassant = (us == white) ? target_square + 8 : target_square - 8;
+        hash_key ^= enpassant_keys[enpassant];
+    }
+
+    // castling (rook move)
+    if (castling_flag)
+    {
+        switch (target_square)
+        {
+            case g1:
+                pop_bit(bitboards[piece_R], h1); set_bit(bitboards[piece_R], f1);
+                hash_key ^= piece_keys[piece_R][h1]; hash_key ^= piece_keys[piece_R][f1];
+                break;
+            case c1:
+                pop_bit(bitboards[piece_R], a1); set_bit(bitboards[piece_R], d1);
+                hash_key ^= piece_keys[piece_R][a1]; hash_key ^= piece_keys[piece_R][d1];
+                break;
+            case g8:
+                pop_bit(bitboards[piece_r], h8); set_bit(bitboards[piece_r], f8);
+                hash_key ^= piece_keys[piece_r][h8]; hash_key ^= piece_keys[piece_r][f8];
+                break;
+            case c8:
+                pop_bit(bitboards[piece_r], a8); set_bit(bitboards[piece_r], d8);
+                hash_key ^= piece_keys[piece_r][a8]; hash_key ^= piece_keys[piece_r][d8];
+                break;
+        }
+    }
+
+    // update castling rights (+ hash)
+    hash_key ^= castle_keys[castle];
+    castle &= castling_rights[source_square];
+    castle &= castling_rights[target_square];
+    hash_key ^= castle_keys[castle];
+
+    // ---- incremental occupancy update ----
+
+    // 1. move the piece
+    pop_bit(occupancies[us], source_square);
+    set_bit(occupancies[us], target_square);
+    pop_bit(occupancies[both], source_square);
+    set_bit(occupancies[both], target_square);
+
+    // 2. remove captured piece
+    if (capture_flag)
+    {
+        if (enpassant_flag)
+        {
+            int ep_square = (us == white) ? (target_square + 8) : (target_square - 8);
+            pop_bit(occupancies[them], ep_square);
+            pop_bit(occupancies[both], ep_square);
+        }
+        else
+        {
+            // target square stays occupied in `both` (the mover is there now)
+            pop_bit(occupancies[them], target_square);
+        }
+    }
+
+    // 3. move the rook when castling
+    if (castling_flag)
+    {
+        switch (target_square)
+        {
+            case g1:
+                pop_bit(occupancies[us], h1); set_bit(occupancies[us], f1);
+                pop_bit(occupancies[both], h1); set_bit(occupancies[both], f1);
+                break;
+            case c1:
+                pop_bit(occupancies[us], a1); set_bit(occupancies[us], d1);
+                pop_bit(occupancies[both], a1); set_bit(occupancies[both], d1);
+                break;
+            case g8:
+                pop_bit(occupancies[us], h8); set_bit(occupancies[us], f8);
+                pop_bit(occupancies[both], h8); set_bit(occupancies[both], f8);
+                break;
+            case c8:
+                pop_bit(occupancies[us], a8); set_bit(occupancies[us], d8);
+                pop_bit(occupancies[both], a8); set_bit(occupancies[both], d8);
+                break;
+        }
+    }
+
+    // change the GLOBAL side to move + hash it
+    side ^= 1;
+    hash_key ^= side_key;
+
+    // legality: is the king of the side that just moved attacked by the new side to move?
+    int king_square = get_ls1b_index(bitboards[(us == white) ? piece_K : piece_k]);
+    if (is_square_attacked(king_square, side))
+    {
+        restore_board();   // now restores the global side too
+        return 0;
+    }
+
+    return 1;
 }
 
 static inline void generate_moves(moves *move_list)
@@ -3353,11 +3311,22 @@ void init_all()
 // potential function idea for is endgame
 // when (no queens && mionor pieces < 3) or (1 queen && minor pieces < 2)
 
+void bench()
+{
+    printf("startpos\n");
+    parse_fen(start_position);
+    perft_test(6);
+    clear_hash_table();
+    printf("kiwipete\n");
+    parse_fen(tricky_position);
+    perft_test(5);
+}
+
 int main()
 {
     init_all();
 
-    int debug = 0;
+    int debug = 1;
 
     if (debug)
     {
@@ -3372,42 +3341,12 @@ int main()
         parse_fen(tricky_position);
         perft_test(5);
          **/
-
-        // test warm hash tables
-
-        printf("with tt move ordering");
-
         parse_fen(tricky_position);
 
         U64 start_time = get_time_ms();
         search_position(10);
         U64 end_time = get_time_ms();
         printf("search time: %llu\n", end_time - start_time);
-
-        parse_fen(tricky_position);
-
-        start_time = get_time_ms();
-        search_position(10);
-        end_time = get_time_ms();
-        printf("search time: %llu\n", end_time - start_time);
-        clear_hash_table();
-
-        printf("current verion");
-
-        parse_fen(cmk_position);
-
-        start_time = get_time_ms();
-        search_position(10);
-        end_time = get_time_ms();
-        printf("search time: %llu\n", end_time - start_time);
-
-        parse_fen(cmk_position);
-
-        start_time = get_time_ms();
-        search_position(10);
-        end_time = get_time_ms();
-        printf("search time: %llu\n", end_time - start_time);
-        clear_hash_table();
     }
     else
     {
