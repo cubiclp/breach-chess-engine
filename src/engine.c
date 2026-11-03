@@ -141,8 +141,12 @@ int stopped = 0;
 
 U64 get_time_ms()
 {
-#ifdef WIN64
-    return GetTickCount64();
+#ifdef _WIN32
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER now;
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&now);
+    return (U64)(now.QuadPart * 1000 / freq.QuadPart);
 #else
     struct timeval time_value;
     gettimeofday(&time_value, NULL);
@@ -163,7 +167,7 @@ U64 get_time_ms()
 
 int input_waiting()
 {
-    #ifndef WIN32
+    #ifndef _WIN32
         fd_set readfds;
         struct timeval tv;
         FD_ZERO (&readfds);
@@ -207,57 +211,40 @@ int input_waiting()
 // read GUI/user input
 void read_input()
 {
-    // bytes to read holder
-    int bytes;
-
-    // GUI/user input
     char input[256] = "", *endc;
 
-    // "listen" to STDIN
     if (input_waiting())
     {
-        // tell engine to stop calculating
-        stopped = 1;
+        int bytes = read(fileno(stdin), input, 255);
 
-        // loop to read bytes from STDIN
-        do
+        // stdin closed (GUI died): shut down
+        if (bytes <= 0) { quit = 1; stopped = 1; return; }
+
+        input[bytes] = 0;
+        endc = strchr(input, '\n');
+        if (endc) *endc = 0;
+
+        if (!strncmp(input, "quit", 4))
         {
-            // read bytes from STDIN
-            bytes=read(fileno(stdin), input, 256);
+            quit = 1; stopped = 1;
         }
-
-        // until bytes available
-        while (bytes < 0);
-
-        // searches for the first occurrence of '\n'
-        endc = strchr(input,'\n');
-
-        // if found new line set value at pointer to 0
-        if (endc) *endc=0;
-
-        // if input is available
-        if (strlen(input) > 0)
+        else if (!strncmp(input, "stop", 4))
         {
-            // match UCI "quit" command
-            if (!strncmp(input, "quit", 4))
-            {
-                // tell engine to terminate exacution
-                quit = 1;
-            }
-
-            // // match UCI "stop" command
-            else if (!strncmp(input, "stop", 4))    {
-                // tell engine to terminate exacution
-                quit = 1;
-            }
+            stopped = 1;
+        }
+        else if (!strncmp(input, "isready", 7))
+        {
+            printf("readyok\n");
         }
     }
 }
 
+int current_search_depth;
+
 // a bridge function to interact between search and GUI input
 static void communicate() {
 	// if time is up break here
-    if(timeset == 1 && get_time_ms() > stoptime) {
+    if(timeset == 1 && current_search_depth > 1 && get_time_ms() > stoptime) {
 		// tell engine to stop calculating
 		stopped = 1;
 	}
@@ -1218,9 +1205,9 @@ static inline void add_move(moves *moves_list, int move)
 void print_move(int move)
 {
     int promoted = get_move_promoted(move);
-    printf("%s%s%c", square_to_coordinates[get_move_source(move)],
-                           square_to_coordinates[get_move_target(move)],
-                           promoted ? promoted_pieces[promoted] : ' ');
+    printf("%s%s", square_to_coordinates[get_move_source(move)],
+                   square_to_coordinates[get_move_target(move)]);
+    if (promoted) printf("%c", promoted_pieces[promoted]);
 }
 
 // for debug purposes
@@ -2974,6 +2961,7 @@ static inline int negamax(int alpha, int beta, int depth)
 
 void search_position(int depth)
 {
+    starttime = get_time_ms();
     int score = 0;
     nodes = 0;
     stopped = 0;
@@ -2991,6 +2979,8 @@ void search_position(int depth)
     // iterative deepening
     for (int current_depth = 1; current_depth <= depth; current_depth++)
     {
+        current_search_depth = current_depth;
+
         if (stopped == 1)
         {
             break;
@@ -2999,6 +2989,8 @@ void search_position(int depth)
         follow_pv = 1;
 
         score = negamax(alpha, beta, current_depth);
+
+        if (stopped == 1) break;
 
         if ((score <= alpha) || (score >= beta))
         {
@@ -3141,94 +3133,47 @@ void parse_position(char *command)
             current_char++;
         }
     }
-    print_board();
 }
 
 // uci "go" command
 void parse_go(char *command)
 {
-    // init parameters
     int depth = -1;
-
-    // init argument
     char *argument = NULL;
 
-    // infinite search
-    if ((argument = strstr(command,"infinite"))) {}
+    // reset time control state (these used to persist between "go" commands)
+    time = -1;
+    inc = 0;
+    movetime = -1;
+    movestogo = 30;
+    timeset = 0;
 
-    // match UCI "binc" command
-    if ((argument = strstr(command,"binc")) && side == black)
-        // parse black time increment
-        inc = atoi(argument + 5);
+    if ((argument = strstr(command, "binc")) && side == black) inc = atoi(argument + 5);
+    if ((argument = strstr(command, "winc")) && side == white) inc = atoi(argument + 5);
+    if ((argument = strstr(command, "wtime")) && side == white) time = atoi(argument + 6);
+    if ((argument = strstr(command, "btime")) && side == black) time = atoi(argument + 6);
+    if ((argument = strstr(command, "movestogo"))) movestogo = atoi(argument + 10);
+    if ((argument = strstr(command, "movetime"))) movetime = atoi(argument + 9);
+    if ((argument = strstr(command, "depth"))) depth = atoi(argument + 6);
 
-    // match UCI "winc" command
-    if ((argument = strstr(command,"winc")) && side == white)
-        // parse white time increment
-        inc = atoi(argument + 5);
-
-    // match UCI "wtime" command
-    if ((argument = strstr(command,"wtime")) && side == white)
-        // parse white time limit
-        time = atoi(argument + 6);
-
-    // match UCI "btime" command
-    if ((argument = strstr(command,"btime")) && side == black)
-        // parse black time limit
-        time = atoi(argument + 6);
-
-    // match UCI "movestogo" command
-    if ((argument = strstr(command,"movestogo")))
-        // parse number of moves to go
-        movestogo = atoi(argument + 10);
-
-    // match UCI "movetime" command
-    if ((argument = strstr(command,"movetime")))
-        // parse amount of time allowed to spend to make a move
-        movetime = atoi(argument + 9);
-
-    // match UCI "depth" command
-    if ((argument = strstr(command,"depth")))
-        // parse search depth
-        depth = atoi(argument + 6);
-
-    // if move time is not available
-    if(movetime != -1)
+    if (movetime != -1)
     {
-        // set time equal to move time
         time = movetime;
-
-        // set moves to go to 1
         movestogo = 1;
     }
 
-    // init start time
-    starttime = get_time_ms();
-
-    // init search depth
-    depth = depth; // TODO: correct?
-
-    // if time control is available
-    if(time != -1)
+    if (time != -1)
     {
-        // flag we're playing with time control
         timeset = 1;
-
-        // set up timing
-        time /= movestogo;
-        time -= 50;
-        stoptime = starttime + time + inc;
+        int overhead = 20;                           // ms for GUI/pipe latency
+        int budget = (time - overhead) / movestogo + inc * 3 / 4;
+        if (budget > time - overhead) budget = time - overhead;
+        if (budget < 1) budget = 1;
+        stoptime = get_time_ms() + budget;
     }
 
-    // if depth is not available
-    if(depth == -1)
-        // set depth to 64 plies (takes ages to complete...)
-        depth = 64;
+    if (depth == -1) depth = 64;
 
-    // print debug info
-    printf("time:%d start:%d stop:%d depth:%d timeset:%d\n",
-    time, starttime, stoptime, depth, timeset);
-
-    // search position
     search_position(depth);
 }
 
@@ -3243,10 +3188,6 @@ void uci_loop()
     setbuf(stdout, NULL);
 
     char input[2000];
-
-    printf("id name Breach\n");
-    printf("id author cubiclp\n");
-    printf("uciok\n");
 
     while (1)
     {
@@ -3274,12 +3215,13 @@ void uci_loop()
         }
         else if (strncmp(input, "ucinewgame", 10) == 0)
         {
-            parse_position(start_position);
+            parse_fen(start_position);
             clear_hash_table();
         }
         else if (strncmp(input, "go", 2) == 0)
         {
             parse_go(input);
+            if (quit) break;
         }
         else if (strncmp(input, "quit", 4) == 0)
         {
@@ -3326,7 +3268,7 @@ int main()
 {
     init_all();
 
-    int debug = 1;
+    int debug = 0;
 
     if (debug)
     {
