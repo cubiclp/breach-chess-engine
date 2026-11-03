@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <math.h>
 
 #ifdef WIN64
 #include <windows.h>
@@ -2706,6 +2707,19 @@ static inline int quiescene(int alpha, int beta)
 const int full_depth_moves = 4;
 const int reduction_limit = 3;
 
+int lmr_table[64][64];
+
+void init_search_tables()
+{
+    for (int d = 1; d < 64; d++)
+    {
+        for (int m = 1; m < 64; m++)
+        {
+            lmr_table[d][m] = (int)(0.75 + log(d) * log(m) / 2.25);
+        }
+    }
+}
+
 // negamax alpha beta search
 static inline int negamax(int alpha, int beta, int depth)
 {
@@ -2861,7 +2875,11 @@ static inline int negamax(int alpha, int beta, int depth)
                 get_move_promoted(move_list->moves[count]) == 0)
             {
                 // search current move with reduced depth:
-                score = -negamax(-alpha - 1, -alpha, depth - 2);
+                int R = lmr_table[depth < 63 ? depth : 63][moves_searched < 63 ? moves_searched : 63];
+                if (pv_node) R--;
+                if (R < 1) R = 1;
+                if (R > depth - 2) R = depth - 2;
+                score = -negamax(-alpha - 1, -alpha, depth - 1 - R);
             }
             // hack to ensure that full-depth search is done
             else
@@ -3275,6 +3293,7 @@ void init_all()
     init_sliders_attacks(rook);
     init_random_keys();
     init_tables();
+    init_search_tables();
     // clear hash table
     clear_hash_table();
 }
