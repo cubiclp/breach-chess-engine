@@ -2757,10 +2757,13 @@ static inline int negamax(int alpha, int beta, int depth)
     // increate depth when king is in check to avoid checkmate
     if (in_check) depth++;
 
+    int static_eval = in_check ? 0 : evaluate();
+
     int legal_moves = 0;
 
     // null move pruning
-    if (depth >= 3 && in_check == 0 && ply)
+    if (depth >= 3 && in_check == 0 && ply && static_eval >= beta
+        && (occupancies[side] & ~(bitboards[side * 6 + piece_P] | bitboards[side * 6 + piece_K])))
     {
         copy_board();
 
@@ -2781,8 +2784,8 @@ static inline int negamax(int alpha, int beta, int depth)
 
         hash_key ^= side_key;
 
-        // depth - 1 - R (2) reduction
-        score = -negamax(-beta, -beta + 1, depth - 1 - 2);
+        // depth - 1 - R, R grows with depth
+        score = -negamax(-beta, -beta + 1, depth - 1 - (2 + depth / 6));
 
         ply--;
 
@@ -3294,7 +3297,7 @@ int main()
 {
     init_all();
 
-    int debug = 1;
+    int debug = 0;
 
     if (debug)
     {
