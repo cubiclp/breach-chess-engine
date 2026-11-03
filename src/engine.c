@@ -2704,6 +2704,7 @@ static inline int quiescene(int alpha, int beta)
     return alpha;
 }
 
+// maybe decrease this to 3 or 2
 const int full_depth_moves = 4;
 const int reduction_limit = 3;
 
@@ -2772,6 +2773,12 @@ static inline int negamax(int alpha, int beta, int depth)
     if (in_check) depth++;
 
     int static_eval = in_check ? 0 : evaluate();
+
+    // reverse futility pruning: static eval is so far above beta that a shallow search won't change that
+    if (!pv_node && !in_check && depth <= 6 && abs(beta) < mate_score && static_eval - 100 * depth >= beta)
+    {
+        return beta;
+    }
 
     int legal_moves = 0;
 
