@@ -2976,6 +2976,8 @@ void search_position(int depth)
     int alpha = -infinity;
     int beta = infinity;
 
+    int best_root_move = 0;
+
     // iterative deepening
     for (int current_depth = 1; current_depth <= depth; current_depth++)
     {
@@ -3001,6 +3003,8 @@ void search_position(int depth)
             continue;
         }
 
+        best_root_move = pv_table[0][0];
+
         alpha = score - 50;
         beta = score + 50;
 
@@ -3021,8 +3025,30 @@ void search_position(int depth)
 
         printf("\n");
     }
+
+    // never print an empty/garbage move (e.g. "stop" during depth 1)
+    // safety in case of a stop during search 1 depth
+    // just get the first legal move and play it instead of an illegal move
+    if (best_root_move == 0)
+    {
+        moves ml[1];
+        generate_moves(ml);
+        for (int i = 0; i < ml->count; i++)
+        {
+            copy_board();
+            int legal = make_move(ml->moves[i]);
+            restore_board();
+            if (legal)
+            {
+                best_root_move = ml->moves[i];
+                break;
+            }
+        }
+    }
+
+
     printf("bestmove ");
-    print_move(pv_table[0][0]);
+    print_move(best_root_move);
     printf("\n");
 }
 
@@ -3268,7 +3294,7 @@ int main()
 {
     init_all();
 
-    int debug = 0;
+    int debug = 1;
 
     if (debug)
     {
