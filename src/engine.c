@@ -2647,6 +2647,7 @@ static inline int score_move(int move, int tt_move)
                 break;
             }
         }
+        return mvv_lva[get_move_piece(move)][target_piece] + 10000;
     }
     // score quiet move
     else
