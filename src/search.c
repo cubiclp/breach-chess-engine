@@ -10,6 +10,8 @@
 #define mate_value 49000
 #define mate_score 48000
 
+#define max_history 7000
+
 int current_search_depth;
 
 // most valuable victim & less valuable attacker
@@ -404,6 +406,13 @@ static inline int score_move(int move, int tt_move)
     // score quiet move
     else
     {
+        // quiet promotions: queen first, underpromotions last
+        int promoted = get_move_promoted(move);
+        if (promoted)
+        {
+            if (promoted == piece_Q || promoted == piece_q) return 9500;
+            return -8000;   // below any history value (history stays within ±7000)
+        }
         // score 1st killer move
         if (killer_moves[0][ply] == move)
         {
@@ -486,6 +495,12 @@ static inline int is_repetition(void)
         }
     }
     return 0;
+}
+
+static inline void update_history(int piece, int target, int bonus)
+{
+    int *h = &history_moves[piece][target];
+    *h += bonus - *h * abs(bonus) / max_history;
 }
 
 static inline int quiescene(int alpha, int beta)
@@ -628,25 +643,20 @@ static inline int negamax(int alpha, int beta, int depth)
 
     pv_length[ply] = ply;
 
-    if (depth == 0)
-    {
-        return quiescene(alpha, beta);
-    }
-
     //  too deep ply, array overflow, likely this is never reached (64 plys deep)
-    if (ply > max_ply - 1)
+    if (ply >= max_ply - 1)
     {
         return evaluate();
     }
-
-    nodes++;
 
     int in_check = is_square_attacked((side == white)
         ? get_ls1b_index(bitboards[piece_K])
         : get_ls1b_index(bitboards[piece_k]), side ^ 1);
 
-    // increate depth when king is in check to avoid checkmate
     if (in_check) depth++;
+    if (depth == 0) return quiescene(alpha, beta);
+
+    nodes++;
 
     int static_eval = in_check ? 0 : evaluate();
 
@@ -659,7 +669,7 @@ static inline int negamax(int alpha, int beta, int depth)
     int legal_moves = 0;
 
     // null move pruning
-    if (depth >= 3 && in_check == 0 && ply && static_eval >= beta
+    if (!pv_node && depth >= 3 && in_check == 0 && ply && static_eval >= beta
         && (occupancies[side] & ~(bitboards[side * 6 + piece_P] | bitboards[side * 6 + piece_K])))
     {
         copy_board();
@@ -726,8 +736,12 @@ static inline int negamax(int alpha, int beta, int depth)
 
     int moves_searched = 0;
 
+    int quiets[256];
+    int quiet_count = 0;
+
     for (int count = 0; count < move_list->count; count++)
     {
+
         copy_board();
         ply++;
 
@@ -811,12 +825,6 @@ static inline int negamax(int alpha, int beta, int depth)
             // remember the best move so far for the transposition table
             best_move = move_list->moves[count];
 
-            if (get_move_capture(move_list->moves[count]) == 0)
-            {
-                // store history moves
-                history_moves[get_move_piece(move_list->moves[count])][get_move_target(move_list->moves[count])] += depth;
-            }
-
             // PV (principal variation) node/move
             alpha = score;
 
@@ -838,13 +846,31 @@ static inline int negamax(int alpha, int beta, int depth)
                 if (get_move_capture(move_list->moves[count]) == 0)
                 {
                     // story killer moves
-                    killer_moves[1][ply] = killer_moves[0][ply];
-                    killer_moves[0][ply] = move_list->moves[count];
+                    // killer moves (don't store the same move in both slots)
+                    if (killer_moves[0][ply] != move_list->moves[count])
+                    {
+                        killer_moves[1][ply] = killer_moves[0][ply];
+                        killer_moves[0][ply] = move_list->moves[count];
+                    }
+
+                    // history bonus for the cutoff move, malus for the quiets tried before it
+                    int bonus = depth * depth;
+                    if (bonus > 1600) bonus = 1600;
+                    update_history(get_move_piece(move_list->moves[count]), get_move_target(move_list->moves[count]), bonus);
+                    for (int i = 0; i < quiet_count; i++)
+                    {
+                        update_history(get_move_piece(quiets[i]), get_move_target(quiets[i]), -bonus);
+                    }
                 }
 
                 // move/node fails high
                 return beta;
             }
+        }
+
+        if (get_move_capture(move_list->moves[count]) == 0 && get_move_promoted(move_list->moves[count]) == 0)
+        {
+            quiets[quiet_count++] = move_list->moves[count];
         }
     }
 

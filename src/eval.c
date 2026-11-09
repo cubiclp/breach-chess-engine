@@ -199,12 +199,26 @@ void init_tables(void)
     }
 }
 
-// TODO: optimize and improve later
-int evaluate(void)
+
+static inline int get_game_phase()
+{
+    int knight = count_bits(bitboards[piece_N] | bitboards[piece_n]);
+    int bishop = count_bits(bitboards[piece_B] | bitboards[piece_b]);
+    int rook = count_bits(bitboards[piece_R] | bitboards[piece_r]);
+    int queen = count_bits(bitboards[piece_Q] | bitboards[piece_q]);
+
+    knight *= gamephaseInc[piece_N];
+    bishop *= gamephaseInc[piece_B];
+    rook *= gamephaseInc[piece_R];
+    queen *= gamephaseInc[piece_Q];
+
+    return knight + bishop + rook + queen;
+}
+
+static inline int eval_material_and_placement(int game_phase)
 {
     int mg[2];
     int eg[2];
-    int gamePhase = 0;
 
     mg[white] = 0;
     mg[black] = 0;
@@ -220,7 +234,6 @@ int evaluate(void)
             int sq = get_ls1b_index(bitboard_copy);
             mg[piece_color] += mg_table[piece][sq];
             eg[piece_color] += eg_table[piece][sq];
-            gamePhase += gamephaseInc[piece];
             pop_bit(bitboard_copy, sq);
         }
     }
@@ -228,8 +241,23 @@ int evaluate(void)
     /* tapered eval */
     int mgScore = mg[side] - mg[side ^ 1];
     int egScore = eg[side] - eg[side ^ 1];
-    int mgPhase = gamePhase;
+    int mgPhase = game_phase;
     if (mgPhase > 24) mgPhase = 24; /* in case of early promotion */
     int egPhase = 24 - mgPhase;
     return (mgScore * mgPhase + egScore * egPhase) / 24;
+}
+
+// TODO: optimize and improve later
+int evaluate(void)
+{
+    int game_phase = get_game_phase();
+    int us = side;
+    int them = us ^ 1;
+
+    int total = 0;
+    total += eval_material_and_placement(game_phase);
+    // it just decreases engines strength
+    //total += eval_pawns(game_phase, us) - eval_pawns(game_phase, them);
+
+    return total;
 }

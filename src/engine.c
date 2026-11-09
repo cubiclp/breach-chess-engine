@@ -19,7 +19,7 @@ void init_all()
     clear_hash_table();
 }
 
-void debug()
+void bench()
 {
     printf("startpos\n");
     parse_fen(start_position);
@@ -30,7 +30,16 @@ void debug()
     perft_test(5);
 }
 
-#define BREACH_DEBUG
+void debug()
+{
+    U64 time = get_time_ms();
+    parse_fen(tricky_position);
+    search_position(10);
+    U64 end = get_time_ms();
+    printf("%llu ms", end - time);
+}
+
+//#define BREACH_DEBUG
 
 int main()
 {
