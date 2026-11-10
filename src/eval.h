@@ -4,9 +4,7 @@
 #include "types.h"
 #include "board.h"
 #include "attacks.h"
-
-// builds the combined material + piece-square tables, call once at startup
-void init_tables(void);
+#include "weights.h"
 
 // static evaluation from the point of view of the side to move
 int evaluate(void);

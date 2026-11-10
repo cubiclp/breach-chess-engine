@@ -16,6 +16,8 @@
 
 typedef uint64_t U64;
 typedef uint32_t U32;
+typedef uint16_t U16;
+typedef int16_t I16;
 
 // FEN debug positions
 #define empty_board "8/8/8/8/8/8/8/8 w - - "
@@ -52,6 +54,13 @@ enum {
 enum {
     piece_P, piece_N, piece_B, piece_R, piece_Q, piece_K, piece_p, piece_n, piece_b, piece_r, piece_q, piece_k
 };
+
+#define P_FOR_SIDE(side) ((side) * 6)
+#define N_FOR_SIDE(side) ((side) * 6 + 1)
+#define B_FOR_SIDE(side) ((side) * 6 + 2)
+#define R_FOR_SIDE(side) ((side) * 6 + 3)
+#define Q_FOR_SIDE(side) ((side) * 6 + 4)
+#define K_FOR_SIDE(side) ((side) * 6 + 5)
 
 // --- Bit manipulations --- //
 
