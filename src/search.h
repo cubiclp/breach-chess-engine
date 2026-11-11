@@ -12,7 +12,7 @@ void init_search_tables(void);
 
 void clear_hash_table(void);
 
-void print_move_scores(moves *move_list);
+void print_move_scores(moves *move_list, int use_see);
 
 void search_position(int depth);
 

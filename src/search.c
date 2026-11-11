@@ -353,16 +353,17 @@ static inline int see_ge(int move, int threshold)
          Move ordering
     =======================
 
-    1. PV move
-    2. Transposition table move
-    3. Captures in MVV/LVA
-    4. 1st killer move
-    5. 2nd killer move
-    6. History moves
-    7. Unsorted moves
+    1. PV move                      20000
+    2. Transposition table move     15000
+    3. Good captures in MVV/LVA     10000+
+    4. 1st killer move              9000
+    5. 2nd killer move              8000
+    6. History moves                +-7000
+    7. Unsorted moves               0
+    8. Bad captures                 -10000
 */
 
-static inline int score_move(int move, int tt_move)
+static inline int score_move(int move, int tt_move, int use_see)
 {
     if (score_pv)
     {
@@ -401,7 +402,17 @@ static inline int score_move(int move, int tt_move)
                 break;
             }
         }
-        return mvv_lva[get_move_piece(move)][target_piece] + 10000;
+        if (use_see)
+        {
+            int mvv = mvv_lva[get_move_piece(move)][target_piece];
+            int attacker = get_move_piece(move) % 6;
+            int victim   = target_piece % 6;
+            int good     = see_values[victim] >= see_values[attacker] || see_ge(move, 0);
+            return good ? mvv + 10000 : mvv - 10000;
+        } else
+        {
+            return mvv_lva[get_move_piece(move)][target_piece] + 10000;
+        }
     }
     // score quiet move
     else
@@ -463,25 +474,25 @@ static inline void shell_sort(moves *move_list, int move_scores[])
 
 // TODO: optimize this later, probably optimize the sorting part
 // tt_move: best move from the transposition table for this position (0 = none)
-static inline void sort_moves(moves *move_list, int tt_move)
+static inline void sort_moves(moves *move_list, int tt_move, int use_see)
 {
     int move_scores[move_list->count];
     for (int count = 0; count < move_list->count; count++)
     {
-        move_scores[count] = score_move(move_list->moves[count], tt_move);
+        move_scores[count] = score_move(move_list->moves[count], tt_move, use_see);
     }
     // sort the moves
     shell_sort(move_list, move_scores);
 }
 
-void print_move_scores(moves *move_list)
+void print_move_scores(moves *move_list, int use_see)
 {
     printf("  Move scores: \n\n");
     for (int count = 0; count < move_list->count; count++)
     {
         printf("  move: ");
         print_move(move_list->moves[count]);
-        printf(" score: %d\n", score_move(move_list->moves[count], 0));
+        printf(" score: %d\n", score_move(move_list->moves[count], 0, use_see));
     }
 }
 
@@ -535,7 +546,7 @@ static inline int quiescene(int alpha, int beta)
     generate_captures(move_list);
 
     // quiescence does not probe the transposition table, so no hash move here
-    sort_moves(move_list, 0);
+    sort_moves(move_list, 0, 0);
 
     for (int count = 0; count < move_list->count; count++)
     {
@@ -596,7 +607,7 @@ static inline int quiescene(int alpha, int beta)
 }
 
 // maybe decrease this to 3 or 2
-static const int full_depth_moves = 4;
+static const int full_depth_moves = 3;
 static const int reduction_limit = 3;
 
 static int lmr_table[64][64];
@@ -732,7 +743,7 @@ static inline int negamax(int alpha, int beta, int depth)
         enable_pv_scoring(move_list);
     }
 
-    sort_moves(move_list, tt_move);
+    sort_moves(move_list, tt_move, 1);
 
     int moves_searched = 0;
 
@@ -741,6 +752,13 @@ static inline int negamax(int alpha, int beta, int depth)
 
     for (int count = 0; count < move_list->count; count++)
     {
+        // // futility pruning
+        // if (!pv_node && !in_check && depth <= 6
+        //     && !get_move_capture(move_list->moves[count])
+        //     && static_eval + 500 < alpha)
+        // {
+        //     continue;
+        // }
 
         copy_board();
         ply++;

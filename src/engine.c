@@ -33,12 +33,12 @@ void bench()
 
 void debug()
 {
+    parse_fen(tricky_position);
     U64 total = 0;
     for (int i = 0; i < 100; i++)
     {
         clear_hash_table();
         U64 time = get_time_ms();
-        parse_fen(tricky_position);
         search_position(10);
         U64 end = get_time_ms();
         printf("%llu ms\n", end - time);
@@ -47,7 +47,7 @@ void debug()
     printf("%llu ms on average\n", total / 100);
 }
 
-#define BREACH_DEBUG
+//#define BREACH_DEBUG
 
 int main()
 {
