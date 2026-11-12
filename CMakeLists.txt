@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 4.3)
 project(breachengine C)
 
+message(STATUS "C compiler: ${CMAKE_C_COMPILER}")
+message(STATUS "C compiler version: ${CMAKE_C_COMPILER_VERSION}")
+
 set(CMAKE_C_STANDARD 17)
 
 include(CheckIPOSupported)
@@ -29,10 +32,14 @@ add_executable(breachengine
         src/search.h
         src/weights.h
         src/weights.c
+        src/tt.c
+        src/tt.h
+        src/staticanalysis.c
+        src/staticanalysis.h
 )
 
 target_compile_options(breachengine PRIVATE
-        $<$<CONFIG:Release>:-Ofast>
+        $<$<CONFIG:Release>:-Ofast -flto=auto>
         $<$<CONFIG:ReleaseDebug>:-Ofast>
 )
 

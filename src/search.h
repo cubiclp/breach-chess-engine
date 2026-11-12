@@ -4,6 +4,10 @@
 #include "types.h"
 #include "board.h"
 
+#define infinity 50000
+#define mate_value 49000
+#define mate_score 48000
+
 // depth of the iteration currently being searched (used by communicate() for time checks)
 extern int current_search_depth;
 

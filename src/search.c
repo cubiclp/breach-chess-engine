@@ -3,12 +3,9 @@
 #include "movegen.h"
 #include "eval.h"
 #include "uci.h"
-
-// ------------- Search ------------ //
-
-#define infinity 50000
-#define mate_value 49000
-#define mate_score 48000
+#include "board.h"
+#include "tt.h"
+#include "staticanalysis.h"
 
 #define max_history 7000
 
@@ -82,120 +79,6 @@ static int pv_table[max_ply][max_ply];
 
 static int follow_pv, score_pv;
 
-// --------- Transposition table ---------- //
-
-// hash table size (0x800000 entries * 16 bytes = 128MB)
-#define hash_size 0x800000
-
-#define no_hash_entry 100000
-
-#define hash_flag_exact 0
-#define hash_flag_alpha 1
-#define hash_flag_beta 2
-
-#define hash_mask (hash_size - 1)
-
-// transposition table entry
-//   hash_upper: upper 32 bits of the position key (lower bits are the table index)
-//   score:      score relative to the node (mate scores are made path independent)
-//   move:       best move found at this node (0 = none), used for move ordering
-//   depth/flag: search depth and score type (exact / alpha / beta)
-typedef struct {
-    U32 hash_upper;
-    int score;
-    int move;
-    uint8_t depth;
-    uint8_t flag;
-} tt;
-
-_Static_assert(sizeof(tt) == 16, "tt entry must be 16 bytes");
-
-static tt hash_table[hash_size];
-
-void clear_hash_table(void)
-{
-    memset(hash_table, 0, sizeof(hash_table));
-}
-
-static inline int read_hash_entry(int alpha, int beta, int depth)
-{
-    tt *hash_entry = &hash_table[hash_key & hash_mask];
-
-    if (hash_entry->hash_upper == (U32)(hash_key >> 32))
-    {
-        if (hash_entry->depth >= depth)
-        {
-            int score = hash_entry->score;
-
-            // retrieve score independent from the actual path
-            // from root node (position) to current node (position)
-            if (score < -mate_score) score += ply;
-            if (score > mate_score) score -= ply;
-
-            // match PV
-            if (hash_entry->flag == hash_flag_exact)
-            {
-                return score;
-            }
-            // match fail low
-            if ((hash_entry->flag == hash_flag_alpha) && (score <= alpha))
-            {
-                return alpha;
-            }
-            // match fail high
-            if ((hash_entry->flag == hash_flag_beta) && (score >= beta))
-            {
-                return beta;
-            }
-        }
-    }
-
-    // TODO: bug in tutorial code? uncomment this
-    return no_hash_entry;
-}
-
-// read only the stored best move of the current position (0 if none).
-// Independent of depth and bounds: even a shallow entry's move is a good guess
-// for move ordering. A hash collision can only yield a move that is not in the
-// generated move list, in which case it is simply never matched.
-static inline int read_hash_move(void)
-{
-    tt *hash_entry = &hash_table[hash_key & hash_mask];
-
-    if (hash_entry->hash_upper == (U32)(hash_key >> 32))
-    {
-        return hash_entry->move;
-    }
-
-    return 0;
-}
-
-static inline void write_hash_entry(int score, int depth, int hash_flag, int best_move)
-{
-    tt *hash_entry = &hash_table[hash_key & hash_mask];
-
-    // store score independent from actual path from root position to current position
-    // from root node (position) to current node (position)
-    if (score < -mate_score) score -= ply;
-    if (score > mate_score) score += ply;
-
-    U32 hash_upper = (U32)(hash_key >> 32);
-
-    // no move found at this node (fail low): keep the old move if the entry
-    // belongs to the same position, so we don't throw away a useful ordering hint
-    if (best_move == 0 && hash_entry->hash_upper == hash_upper)
-    {
-        best_move = hash_entry->move;
-    }
-
-    // write hash entry data
-    hash_entry->hash_upper = hash_upper;
-    hash_entry->score = score;
-    hash_entry->move = best_move;
-    hash_entry->flag = (uint8_t) hash_flag;
-    hash_entry->depth = (uint8_t) depth;
-}
-
 static inline void enable_pv_scoring(moves *move_list)
 {
     follow_pv = 0;
@@ -208,145 +91,6 @@ static inline void enable_pv_scoring(moves *move_list)
             follow_pv = 1;
         }
     }
-}
-
-// ---------- Static exchange evaluation ---------- //
-
-// simple material values for SEE (indexed by piece type: P N B R Q K)
-// the king is huge so that a king capture into a defended square always looks losing
-static const int see_values[6] = { 100, 300, 300, 500, 900, 20000 };
-
-// all pieces (both colors) attacking `square`, given an occupancy
-static inline U64 attackers_to_square(int square, U64 occ)
-{
-    U64 diagonal_sliders = bitboards[piece_B] | bitboards[piece_b] | bitboards[piece_Q] | bitboards[piece_q];
-    U64 straight_sliders = bitboards[piece_R] | bitboards[piece_r] | bitboards[piece_Q] | bitboards[piece_q];
-
-    return (pawn_attacks[black][square] & bitboards[piece_P])    // white pawns attacking square
-         | (pawn_attacks[white][square] & bitboards[piece_p])    // black pawns attacking square
-         | (knight_attacks[square] & (bitboards[piece_N] | bitboards[piece_n]))
-         | (king_attacks[square]   & (bitboards[piece_K] | bitboards[piece_k]))
-         | (get_bishop_attacks(square, occ) & diagonal_sliders)
-         | (get_rook_attacks(square, occ)   & straight_sliders);
-}
-
-// static exchange evaluation: net material result (centipawns, from the mover's view)
-// of making `move` and then both sides optimally recapturing on the target square.
-// Does not modify any global state.
-static inline int see(int move)
-{
-    int from = get_move_source(move);
-    int to = get_move_target(move);
-    int piece = get_move_piece(move);
-    int promoted = get_move_promoted(move);
-
-    int us = (piece <= piece_K) ? white : black;
-    int them = us ^ 1;
-
-    U64 occ = occupancies[both];
-
-    // ---- value of what the move captures ----
-    int victim_value = 0;
-
-    if (get_move_enpassant(move))
-    {
-        victim_value = see_values[0];
-        // the captured pawn is not on the target square: remove it from the occupancy
-        pop_bit(occ, (us == white) ? to + 8 : to - 8);
-    }
-    else if (get_bit(occupancies[them], to))
-    {
-        for (int p = 0; p < 6; p++)
-        {
-            if (get_bit(bitboards[p + them * 6], to))
-            {
-                victim_value = see_values[p];
-                break;
-            }
-        }
-    }
-
-    int gain[33];
-    int d = 0;
-    gain[0] = victim_value;
-
-    // value of the piece that now stands on the target square (what gets captured next)
-    int piece_on_square = see_values[piece % 6];
-
-    if (promoted)
-    {
-        gain[0] += see_values[promoted % 6] - see_values[0];
-        piece_on_square = see_values[promoted % 6];
-    }
-
-    // take the mover off the board so sliders behind it are revealed
-    pop_bit(occ, from);
-
-    U64 diagonal_sliders = bitboards[piece_B] | bitboards[piece_b] | bitboards[piece_Q] | bitboards[piece_q];
-    U64 straight_sliders = bitboards[piece_R] | bitboards[piece_r] | bitboards[piece_Q] | bitboards[piece_q];
-
-    U64 attackers = attackers_to_square(to, occ) & occ;
-
-    int stm = them;   // side to recapture next
-
-    while (1)
-    {
-        // least valuable attacker of the side to move
-        U64 stm_attackers = attackers & occupancies[stm];
-        if (!stm_attackers)
-        {
-            break;
-        }
-
-        int attacker_type = 0;
-        U64 attacker_set = 0ULL;
-        for (; attacker_type < 6; attacker_type++)
-        {
-            attacker_set = stm_attackers & bitboards[attacker_type + stm * 6];
-            if (attacker_set)
-            {
-                break;
-            }
-        }
-
-        // speculative score if stm captures here: it wins the piece on the square,
-        // minus whatever the other side had gained so far
-        d++;
-        gain[d] = piece_on_square - gain[d - 1];
-        piece_on_square = see_values[attacker_type];
-
-        // remove the attacker from the board
-        pop_bit(occ, get_ls1b_index(attacker_set));
-
-        // reveal sliders that were standing behind it (x-rays)
-        if (attacker_type == piece_P || attacker_type == piece_B || attacker_type == piece_Q)
-        {
-            attackers |= get_bishop_attacks(to, occ) & diagonal_sliders;
-        }
-        if (attacker_type == piece_R || attacker_type == piece_Q)
-        {
-            attackers |= get_rook_attacks(to, occ) & straight_sliders;
-        }
-        attackers &= occ;
-
-        stm ^= 1;
-    }
-
-    // back-propagate: at every step the side to move may stand pat instead of recapturing
-    while (d > 0)
-    {
-        int stand_pat = -gain[d - 1];
-        gain[d - 1] = -((stand_pat > gain[d]) ? stand_pat : gain[d]);
-        d--;
-    }
-
-    return gain[0];
-}
-
-// convenience wrapper: is the exchange worth at least `threshold`?
-static inline int see_ge(int move, int threshold)
-{
-    return see(move) >= threshold;
 }
 
 /*  =======================
@@ -752,14 +496,6 @@ static inline int negamax(int alpha, int beta, int depth)
 
     for (int count = 0; count < move_list->count; count++)
     {
-        // // futility pruning
-        // if (!pv_node && !in_check && depth <= 6
-        //     && !get_move_capture(move_list->moves[count])
-        //     && static_eval + 500 < alpha)
-        // {
-        //     continue;
-        // }
-
         copy_board();
         ply++;
 

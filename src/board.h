@@ -29,6 +29,9 @@ extern int ply;
 // node counter shared by perft and search
 extern U64 nodes;
 
+// make a move on the board, returns 0 (and restores the board) if it leaves the king in check
+int make_move(int move);
+
 // random numbers
 extern U32 random_state;
 U32 get_random_number_U32(void);
