@@ -1,19 +1,24 @@
 #include "eval.h"
 
-// -------------Evaluation -------- //
+#define NOT_A_FILE 0xFEFEFEFEFEFEFEFEULL
+#define NOT_H_FILE 0x7F7F7F7F7F7F7F7FULL
 
-// material scrore
+static U64 mob_area[2];
 
-/*
-    ♙ =   100   = ♙
-    ♘ =   300   = ♙ * 3
-    ♗ =   350   = ♙ * 3 + ♙ * 0.5
-    ♖ =   500   = ♙ * 5
-    ♕ =   1000  = ♙ * 10
-    ♔ =   10000 = ♙ * 100
+void init_eval()
+{
 
-*/
+    // init mob area
+    U64 wp = bitboards[piece_P];
+    U64 bp = bitboards[piece_p];
 
+    // a8 = 0, so white pawns move toward lower indices
+    U64 white_att = ((wp >> 7) & NOT_A_FILE) | ((wp >> 9) & NOT_H_FILE);
+    U64 black_att = ((bp << 7) & NOT_H_FILE) | ((bp << 9) & NOT_A_FILE);
+
+    mob_area[white] = ~(wp | black_att);
+    mob_area[black] = ~(bp | white_att);
+}
 
 static int gamephaseInc[12] = {0, 1, 1, 2, 4, 0,   0, 1, 1, 2, 4, 0};   // P N B R Q K | p n b r q k
 
@@ -88,6 +93,59 @@ static inline void eval_material_and_placement(int *mg_total, int *eg_total, int
     *eg_total += eg_score;
 }
 
+static inline void eval_mobility(int *mg_total, int *eg_total, int color)
+{
+    int base = P_FOR_SIDE(color);
+    U64 area = mob_area[color];
+    U64 occ  = occupancies[both];
+
+    int mg = 0;
+    int eg = 0;
+    U64 bb;
+
+    bb = bitboards[base + piece_N];
+    while (bb)
+    {
+        int sq = get_ls1b_index(bb);
+        bb &= bb - 1;
+        int m = count_bits(knight_attacks[sq] & area);
+        mg += (m - mg_weights.mobility_base[0]) * mg_weights.mobility[0];
+        eg += (m - eg_weights.mobility_base[0]) * eg_weights.mobility[0];
+    }
+
+    bb = bitboards[base + piece_B];
+    while (bb)
+    {
+        int sq = get_ls1b_index(bb);
+        bb &= bb - 1;
+        int m = count_bits(get_bishop_attacks(sq, occ) & area);
+        mg += (m - mg_weights.mobility_base[1]) * mg_weights.mobility[1];
+        eg += (m - eg_weights.mobility_base[1]) * eg_weights.mobility[1];
+    }
+
+    bb = bitboards[base + piece_R];
+    while (bb)
+    {
+        int sq = get_ls1b_index(bb);
+        bb &= bb - 1;
+        int m = count_bits(get_rook_attacks(sq, occ) & area);
+        mg += (m - mg_weights.mobility_base[2]) * mg_weights.mobility[2];
+        eg += (m - eg_weights.mobility_base[2]) * eg_weights.mobility[2];
+    }
+
+    *mg_total += mg;
+    *eg_total += eg;
+}
+
+static inline void eval_bishop_pair(int *mg_total, int *eg_total, int color)
+{
+    if (count_bits(bitboards[B_FOR_SIDE(color)]) >= 2)
+    {
+        *mg_total += mg_weights.bishop_pair;
+        *eg_total += eg_weights.bishop_pair;
+    }
+}
+
 // TODO: optimize and improve later
 int evaluate(void)
 {
@@ -98,6 +156,12 @@ int evaluate(void)
 
     eval_material_and_placement(&mg[us], &eg[us], us);
     eval_material_and_placement(&mg[them], &eg[them], them);
+
+    eval_mobility(&mg[us], &eg[us], us);
+    eval_mobility(&mg[them], &eg[them], them);
+
+    eval_bishop_pair(&mg[us], &eg[us], us);
+    eval_bishop_pair(&mg[them], &eg[them], them);
 
     // tapered eval
     int mg_eval = mg[us] - mg[them];

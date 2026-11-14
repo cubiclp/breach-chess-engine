@@ -5,9 +5,17 @@
 weights mg_weights;
 weights eg_weights;
 
+static char *original_content;
+
 void init_weights()
 {
     parse_weights_from_file(WEIGHTS_FILE);
+}
+
+void deinit_weights()
+{
+    free(original_content);
+    original_content = NULL;
 }
 
 void parse_weights(char *raw)
@@ -104,5 +112,64 @@ void parse_weights_from_file(char *file)
 
     parse_weights(content);
 
-    free(content);
+    original_content = content;
+}
+
+void write_weights(char *file)
+{
+    if (!original_content)
+    {
+        fprintf(stderr, "No weights template loaded\n");
+        return;
+    }
+
+    const int vals_len = sizeof(weights) / sizeof(I16);
+    const int total = vals_len * 2;
+
+    I16 w[total];
+    memcpy(w, &mg_weights, sizeof(weights));
+    memcpy(w + vals_len, &eg_weights, sizeof(weights));
+
+    FILE *f = fopen(file, "w");
+
+    if (!f)
+    {
+        perror("Could not open weights file for writing");
+        return;
+    }
+
+    int vals_index = 0;
+    char *p = original_content;
+
+    while (*p)
+    {
+        // Copy comments through untouched
+        if (*p == '#')
+        {
+            while (*p && *p != '\n')
+            {
+                fputc(*p++, f);
+            }
+
+            continue;
+        }
+
+        // Anything that isn't whitespace is a number token (same as the parser)
+        if (!isspace((unsigned char)*p) && vals_index < total)
+        {
+            char *end;
+            strtol(p, &end, 10);
+
+            if (end != p)
+            {
+                fprintf(f, "%d", w[vals_index++]);
+                p = end;
+                continue;
+            }
+        }
+
+        fputc(*p++, f);
+    }
+
+    fclose(f);
 }

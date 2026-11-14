@@ -16,8 +16,14 @@ void init_all()
     init_random_keys();
     init_search_tables();
     init_weights();
+    init_eval();
     // clear hash table
     clear_hash_table();
+}
+
+void deinit_all()
+{
+    deinit_weights();
 }
 
 void bench()
@@ -58,6 +64,8 @@ int main()
 #else
     uci_loop();
 #endif
+
+    deinit_all();
 
     return 0;
 }
