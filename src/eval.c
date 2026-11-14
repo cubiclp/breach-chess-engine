@@ -1,23 +1,72 @@
 #include "eval.h"
 
-#define NOT_A_FILE 0xFEFEFEFEFEFEFEFEULL
-#define NOT_H_FILE 0x7F7F7F7F7F7F7F7FULL
+#define FILE_A_BB 0x0101010101010101ULL
+
+U64 file_masks[64];
 
 static U64 mob_area[2];
+static U64 passed_masks[2][64];
+static U64 adjacent_files[8];
 
 void init_eval()
 {
-
     // init mob area
     U64 wp = bitboards[piece_P];
     U64 bp = bitboards[piece_p];
 
     // a8 = 0, so white pawns move toward lower indices
-    U64 white_att = ((wp >> 7) & NOT_A_FILE) | ((wp >> 9) & NOT_H_FILE);
-    U64 black_att = ((bp << 7) & NOT_H_FILE) | ((bp << 9) & NOT_A_FILE);
+    U64 white_att = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
+    U64 black_att = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
 
     mob_area[white] = ~(wp | black_att);
     mob_area[black] = ~(bp | white_att);
+
+    // init file masks
+    for (int sq = 0; sq < 64; sq++)
+    {
+        file_masks[sq] = FILE_A_BB << (sq & 7);
+    }
+
+    // init adjacent files
+    for (int f = 0; f < 8; f++)
+    {
+        adjacent_files[f] = 0ULL;
+        if (f > 0)
+        {
+            adjacent_files[f] |= FILE_A_BB << (f - 1);
+        }
+        if (f < 7)
+        {
+            adjacent_files[f] |= FILE_A_BB << (f + 1);
+        }
+    }
+
+    // init passed pawn masks
+    for (int sq = 0; sq < 64; sq++)
+    {
+        int f = sq % 8;
+        int r = sq / 8;   // r = 0 is the 8th rank
+        passed_masks[white][sq] = 0ULL;
+        passed_masks[black][sq] = 0ULL;
+
+        for (int rr = 0; rr < 8; rr++)
+        {
+            for (int ff = f - 1; ff <= f + 1; ff++)
+            {
+                if (ff < 0 || ff > 7) continue;
+                if (rr < r)
+                {
+                    // white moves toward rank 8
+                    passed_masks[white][sq] |= 1ULL << (rr * 8 + ff);
+                }
+                if (rr > r)
+                {
+                    // black moves toward rank 1
+                    passed_masks[black][sq] |= 1ULL << (rr * 8 + ff);
+                }
+            }
+        }
+    }
 }
 
 static int gamephaseInc[12] = {0, 1, 1, 2, 4, 0,   0, 1, 1, 2, 4, 0};   // P N B R Q K | p n b r q k
@@ -146,6 +195,60 @@ static inline void eval_bishop_pair(int *mg_total, int *eg_total, int color)
     }
 }
 
+// doubled and isolated pawns
+static inline void eval_pawn_structure(int *mg_total, int *eg_total, int color)
+{
+    U64 own_pawns = bitboards[P_FOR_SIDE(color) + piece_P];
+
+    for (int f = 0; f < 8; f++)
+    {
+        int n = count_bits(own_pawns & file_masks[f]);
+        if (n == 0) continue;
+
+        // doubled: penalize each pawn beyond the first on the file
+        if (n > 1)
+        {
+            *mg_total -= mg_weights.doubled_pawns * (n - 1);
+            *eg_total -= eg_weights.doubled_pawns * (n - 1);
+        }
+
+        // isolated: no friendly pawns on adjacent files
+        if (!(own_pawns & adjacent_files[f]))
+        {
+            *mg_total -= mg_weights.isolated_pawns * n;
+            *eg_total -= eg_weights.isolated_pawns * n;
+        }
+    }
+}
+
+// 0 = own back rank, 7 = promotion rank
+static inline int relative_rank(int color, int sq)
+{
+    return color == white ? 7 - (sq >> 3) : (sq >> 3);
+}
+
+static inline void eval_passed_pawns(int *mg_total, int *eg_total, int color)
+{
+    int base = P_FOR_SIDE(color);
+    U64 enemy_pawns = bitboards[P_FOR_SIDE(color ^ 1) + piece_P];
+
+    U64 bb = bitboards[base + piece_P];
+    while (bb)
+    {
+        int sq = get_ls1b_index(bb);
+
+        // passed: no enemy pawn on its file or adjacent files in front of it
+        if (!(passed_masks[color][sq] & enemy_pawns))
+        {
+            int r = relative_rank(color, sq);
+            *mg_total += mg_weights.passed_pawns[r];
+            *eg_total += eg_weights.passed_pawns[r];
+        }
+
+        pop_bit(bb, sq);
+    }
+}
+
 // TODO: optimize and improve later
 int evaluate(void)
 {
@@ -162,6 +265,12 @@ int evaluate(void)
 
     eval_bishop_pair(&mg[us], &eg[us], us);
     eval_bishop_pair(&mg[them], &eg[them], them);
+
+    eval_pawn_structure(&mg[us], &eg[us], us);
+    eval_pawn_structure(&mg[them], &eg[them], them);
+
+    eval_passed_pawns(&mg[us], &eg[us], us);
+    eval_passed_pawns(&mg[them], &eg[them], them);
 
     // tapered eval
     int mg_eval = mg[us] - mg[them];

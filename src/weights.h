@@ -14,6 +14,9 @@ typedef struct weights {
     I16 mobility_base[3];
     I16 mobility[3];
     I16 bishop_pair;
+    I16 doubled_pawns;
+    I16 isolated_pawns;
+    I16 passed_pawns[8];
 } weights;
 
 extern weights mg_weights;

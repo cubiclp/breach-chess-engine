@@ -73,6 +73,15 @@
 
 # bishop pair
 30
+
+# doubled pawns
+8
+
+# isolated pawns
+8
+
+# passed pawns per rank
+0 5 10 15 30 55 90 0
     
 # -------------------------- #
 # ----- endgame values ----- #
@@ -149,3 +158,12 @@
 
 # bishop pair
 50
+
+# doubled pawns
+12
+
+# isolated pawns
+10
+
+# passed pawns per rank
+0 10 15 30 55 90 140 0
