@@ -82,6 +82,18 @@
 
 # passed pawns per rank
 0 5 10 15 30 55 90 0
+
+# king attack weight
+2 2 3 5
+
+# king danger div and max danger
+4 400
+
+# king shield near and far
+12 6
+
+# king semi open and open
+12 25
     
 # -------------------------- #
 # ----- endgame values ----- #
@@ -167,3 +179,18 @@
 
 # passed pawns per rank
 0 10 15 30 55 90 140 0
+
+# the king safety values are only here for symmetry reasons,
+# they are not used in the eval itself
+
+# king attack weight
+0 0 0 0
+
+# king danger div and max danger
+0 0
+
+# king shield near and far
+0 0
+
+# king semi open and open
+0 0

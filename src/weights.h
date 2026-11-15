@@ -17,6 +17,13 @@ typedef struct weights {
     I16 doubled_pawns;
     I16 isolated_pawns;
     I16 passed_pawns[8];
+    I16 king_attack_weight[4];
+    I16 king_danger_div;
+    I16 king_danger_max;
+    I16 shield_near;
+    I16 shield_far;
+    I16 king_semi_open;
+    I16 king_open;
 } weights;
 
 extern weights mg_weights;

@@ -10,19 +10,16 @@ static U64 mob_area[2];
 static U64 passed_masks[2][64];
 static U64 adjacent_files[8];
 
+static int eval_king_sq[2];
+static U64 enemy_zone[2]; // enemy_zone[c] = zone around the king that color c attacks
+static int atk_units[2];
+static int atk_count[2];
+U64 king_zone_masks[2][64];   // zone around a king of the given color
+static U64 shield_near[2][64];  // 3 squares directly in front of the king
+static U64 shield_far[2][64];   // 3 squares two ranks in front
+
 void init_eval()
 {
-    // init mob area
-    U64 wp = bitboards[piece_P];
-    U64 bp = bitboards[piece_p];
-
-    // a8 = 0, so white pawns move toward lower indices
-    U64 white_att = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
-    U64 black_att = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
-
-    mob_area[white] = ~(wp | black_att);
-    mob_area[black] = ~(bp | white_att);
-
     // init file masks
     for (int sq = 0; sq < 64; sq++)
     {
@@ -68,6 +65,41 @@ void init_eval()
                 }
             }
         }
+    }
+
+    // init king safety
+    for (int sq = 0; sq < 64; sq++)
+    {
+        int f = sq & 7;
+        int r = sq >> 3;
+
+        // zone: king moves + own square, extended one rank toward the enemy
+        U64 z = king_attacks[sq] | (1ULL << sq);
+        king_zone_masks[white][sq] = z | (z >> 8);   // white attacks toward rank 8 = lower indices
+        king_zone_masks[black][sq] = z | (z << 8);
+
+        // shield: clamp the file so the 3-wide window always fits on the board
+        int cf = f < 1 ? 1 : (f > 6 ? 6 : f);
+        shield_near[white][sq] = shield_far[white][sq] = 0ULL;
+        shield_near[black][sq] = shield_far[black][sq] = 0ULL;
+
+        for (int ff = cf - 1; ff <= cf + 1; ff++)
+        {
+            if (r >= 1) shield_near[white][sq] |= 1ULL << ((r - 1) * 8 + ff);
+            if (r >= 2) shield_far[white][sq]  |= 1ULL << ((r - 2) * 8 + ff);
+            if (r <= 6) shield_near[black][sq] |= 1ULL << ((r + 1) * 8 + ff);
+            if (r <= 5) shield_far[black][sq]  |= 1ULL << ((r + 2) * 8 + ff);
+        }
+    }
+}
+
+static inline void add_king_attack(int color, int type, U64 attacks)
+{
+    U64 hit = attacks & enemy_zone[color];
+    if (hit)
+    {
+        atk_units[color] += mg_weights.king_attack_weight[type] * count_bits(hit);
+        atk_count[color]++;
     }
 }
 
@@ -153,13 +185,16 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
     int mg = 0;
     int eg = 0;
     U64 bb;
+    U64 att;
 
     bb = bitboards[base + piece_N];
     while (bb)
     {
         int sq = get_ls1b_index(bb);
         bb &= bb - 1;
-        int m = count_bits(knight_attacks[sq] & area);
+        att = knight_attacks[sq];
+        add_king_attack(color, 0, att);
+        int m = count_bits(att & area);
         mg += (m - mg_weights.mobility_base[0]) * mg_weights.mobility[0];
         eg += (m - eg_weights.mobility_base[0]) * eg_weights.mobility[0];
     }
@@ -169,7 +204,9 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
     {
         int sq = get_ls1b_index(bb);
         bb &= bb - 1;
-        int m = count_bits(get_bishop_attacks(sq, occ) & area);
+        att = get_bishop_attacks(sq, occ);
+        add_king_attack(color, 1, att);
+        int m = count_bits(att & area);
         mg += (m - mg_weights.mobility_base[1]) * mg_weights.mobility[1];
         eg += (m - eg_weights.mobility_base[1]) * eg_weights.mobility[1];
     }
@@ -179,7 +216,9 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
     {
         int sq = get_ls1b_index(bb);
         bb &= bb - 1;
-        int m = count_bits(get_rook_attacks(sq, occ) & area);
+        att = get_rook_attacks(sq, occ);
+        add_king_attack(color, 2, att);
+        int m = count_bits(att & area);
         mg += (m - mg_weights.mobility_base[2]) * mg_weights.mobility[2];
         eg += (m - eg_weights.mobility_base[2]) * eg_weights.mobility[2];
     }
@@ -287,6 +326,70 @@ static inline PawnEntry *probe_pawns(void)
     return e;
 }
 
+static inline void eval_king_safety(int *mg_total, int *eg_total, int color)
+{
+    int enemy = color ^ 1;
+    int ksq = eval_king_sq[color];
+    U64 own_pawns = bitboards[P_FOR_SIDE(color) + piece_P];
+    U64 enemy_pawns = bitboards[P_FOR_SIDE(enemy) + piece_P];
+
+    // deal with the queen since we dont do that in mobility
+    U64 q = bitboards[Q_FOR_SIDE(enemy)];
+    int has_queen = q != 0;
+    while (q)
+    {
+        int sq = get_ls1b_index(q);
+        q &= q - 1;
+        add_king_attack(enemy, 3, get_queen_attacks(sq, occupancies[both]));
+    }
+
+    // king zone attack checking
+    if (atk_count[enemy] >= 2)
+    {
+        int units = atk_units[enemy];
+        if (!has_queen)
+        {
+            units >>= 1;
+        }
+        int danger = units * units / mg_weights.king_danger_div;
+        if (danger > mg_weights.king_danger_max)
+        {
+            danger = mg_weights.king_danger_max;
+        }
+        *mg_total -= danger;
+    }
+
+    // pawn shield
+    *mg_total += mg_weights.shield_near * count_bits(own_pawns & shield_near[color][ksq]);
+    *mg_total += mg_weights.shield_far * count_bits(own_pawns & shield_far[color][ksq]);
+
+    // open and semi open files next to king
+    int file = ksq & 7;
+    int f = file > 0 ? file - 1 : 0;
+    int max = file < 7 ? file + 1 : 7;
+    for (int ff = f; ff <= max; ff++)
+    {
+        U64 file = FILE_A_BB << ff;
+        if (!(own_pawns & file))
+        {
+            *mg_total -= enemy_pawns & file ? mg_weights.king_semi_open : mg_weights.king_open;
+        }
+    }
+}
+
+static inline void eval_prepare()
+{
+    int wk = get_ls1b_index(bitboards[piece_K]);
+    int bk = get_ls1b_index(bitboards[piece_k]);
+    eval_king_sq[white] = wk;
+    eval_king_sq[black] = bk;
+    enemy_zone[white] = king_zone_masks[black][bk];
+    enemy_zone[black] = king_zone_masks[white][wk];
+
+    atk_units[white] = atk_units[black] = 0;
+    atk_count[white] = atk_count[black] = 0;
+}
+
 // TODO: optimize and improve later
 int evaluate(void)
 {
@@ -299,6 +402,8 @@ int evaluate(void)
     mob_area[white] = ~(bitboards[piece_P] | pe->att[black]);
     mob_area[black] = ~(bitboards[piece_p] | pe->att[white]);
 
+    eval_prepare();
+
     eval_material_and_placement(&mg[us], &eg[us], us);
     eval_material_and_placement(&mg[them], &eg[them], them);
 
@@ -310,6 +415,9 @@ int evaluate(void)
 
     mg[us] += (us == white) ? pe->mg : -pe->mg;   // entry is white-relative
     eg[us] += (us == white) ? pe->eg : -pe->eg;
+
+    eval_king_safety(&mg[us], &eg[us], us);
+    eval_king_safety(&mg[them], &eg[them], them);
 
     // tapered eval
     int mg_eval = mg[us] - mg[them];
