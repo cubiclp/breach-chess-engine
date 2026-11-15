@@ -1,5 +1,7 @@
 #include "eval.h"
 
+#include <assert.h>
+
 #define FILE_A_BB 0x0101010101010101ULL
 
 U64 file_masks[64];
@@ -249,6 +251,42 @@ static inline void eval_passed_pawns(int *mg_total, int *eg_total, int color)
     }
 }
 
+typedef struct {
+    U64 wp, bp;      // key: exact pawn bitboards, so no collisions possible
+    int mg, eg;      // pawn-structure + passed score, white minus black
+    U64 att[2];      // pawn attacks per color, reused for the mobility area
+} PawnEntry;
+
+#define PAWN_TABLE_BITS 14
+#define PAWN_TABLE_SIZE (1 << PAWN_TABLE_BITS) // 16k entries is plenty
+static PawnEntry pawn_table[PAWN_TABLE_SIZE];
+
+static inline PawnEntry *probe_pawns(void)
+{
+    U64 wp = bitboards[piece_P], bp = bitboards[piece_p];
+
+    U64 h = (wp * 0x9E3779B97F4A7C15ULL) ^ (bp * 0xC2B2AE3D27D4EB4FULL);
+    PawnEntry *e = &pawn_table[h >> (64 - PAWN_TABLE_BITS)];
+
+    if (e->wp == wp && e->bp == bp)
+    {
+        return e; // hit
+    }
+
+    int mgw = 0, egw = 0, mgb = 0, egb = 0;
+    eval_pawn_structure(&mgw, &egw, white);
+    eval_passed_pawns(&mgw, &egw, white);
+    eval_pawn_structure(&mgb, &egb, black);
+    eval_passed_pawns(&mgb, &egb, black);
+
+    e->wp = wp;  e->bp = bp;
+    e->mg = mgw - mgb;
+    e->eg = egw - egb;
+    e->att[white] = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
+    e->att[black] = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
+    return e;
+}
+
 // TODO: optimize and improve later
 int evaluate(void)
 {
@@ -256,6 +294,10 @@ int evaluate(void)
     int eg[2] = {0, 0};
     int us = side;
     int them = us ^ 1;
+
+    PawnEntry *pe = probe_pawns();
+    mob_area[white] = ~(bitboards[piece_P] | pe->att[black]);
+    mob_area[black] = ~(bitboards[piece_p] | pe->att[white]);
 
     eval_material_and_placement(&mg[us], &eg[us], us);
     eval_material_and_placement(&mg[them], &eg[them], them);
@@ -266,11 +308,8 @@ int evaluate(void)
     eval_bishop_pair(&mg[us], &eg[us], us);
     eval_bishop_pair(&mg[them], &eg[them], them);
 
-    eval_pawn_structure(&mg[us], &eg[us], us);
-    eval_pawn_structure(&mg[them], &eg[them], them);
-
-    eval_passed_pawns(&mg[us], &eg[us], us);
-    eval_passed_pawns(&mg[them], &eg[them], them);
+    mg[us] += (us == white) ? pe->mg : -pe->mg;   // entry is white-relative
+    eg[us] += (us == white) ? pe->eg : -pe->eg;
 
     // tapered eval
     int mg_eval = mg[us] - mg[them];
