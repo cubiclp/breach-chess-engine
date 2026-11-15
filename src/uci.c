@@ -21,6 +21,8 @@ U64 stoptime = 0;
 int timeset = 0;
 int stopped = 0;
 
+int infinite;
+
 /*
 
   Function to "listen" to GUI's input during search.
@@ -78,35 +80,30 @@ static int input_waiting(void)
 // read GUI/user input
 static void read_input(void)
 {
-    char input[256] = "", *endc;
-
-    if (input_waiting())
+    if (!input_waiting())
     {
-#ifdef _WIN32
-        int bytes = _read(_fileno(stdin), input, 255);
-#else
-        int bytes = read(fileno(stdin), input, 255);
-#endif
+        return;
+    }
 
-        // stdin closed (GUI died): shut down
-        if (bytes <= 0) { quit = 1; stopped = 1; return; }
+    char input[256];
+    if (!fgets(input, sizeof(input), stdin))
+    {
+        quit = 1;
+        stopped = 1;   // stdin closed
+        return;
+    }
 
-        input[bytes] = 0;
-        endc = strchr(input, '\n');
-        if (endc) *endc = 0;
-
-        if (!strncmp(input, "quit", 4))
-        {
-            quit = 1; stopped = 1;
-        }
-        else if (!strncmp(input, "stop", 4))
-        {
-            stopped = 1;
-        }
-        else if (!strncmp(input, "isready", 7))
-        {
-            printf("readyok\n");
-        }
+    if (!strncmp(input, "quit", 4))
+    {
+        quit = 1; stopped = 1;
+    }
+    else if (!strncmp(input, "stop", 4))
+    {
+        stopped = 1;
+    }
+    else if (!strncmp(input, "isready", 7))
+    {
+        printf("readyok\n");
     }
 }
 
@@ -252,6 +249,8 @@ void parse_go(char *command)
     if ((argument = strstr(command, "movestogo"))) movestogo = atoi(argument + 10);
     if ((argument = strstr(command, "movetime"))) movetime = atoi(argument + 9);
     if ((argument = strstr(command, "depth"))) depth = atoi(argument + 6);
+
+    infinite = strstr(command, "infinite") != NULL;
 
     if (movetime != -1)
     {

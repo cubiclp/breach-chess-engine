@@ -30,6 +30,8 @@ extern int timeset;
 // variable to flag when the time is up
 extern int stopped;
 
+extern int infinite;
+
 // called regularly from the search: checks the clock and the GUI input
 void communicate(void);
 

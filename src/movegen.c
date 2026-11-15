@@ -9,6 +9,36 @@ void print_move(int move)
     if (promoted) printf("%c", promoted_pieces[promoted]);
 }
 
+char *print_move_to_string(int move, char *out)
+{
+    if (move == 0)
+    {
+        strcpy(out, "0000");   // null move, also what UCI expects when there is no legal move
+        return out;
+    }
+
+    int promoted = get_move_promoted(move);
+    const char *from = square_to_coordinates[get_move_source(move)];
+    const char *to   = square_to_coordinates[get_move_target(move)];
+
+    out[0] = from[0];
+    out[1] = from[1];
+    out[2] = to[0];
+    out[3] = to[1];
+
+    if (promoted)
+    {
+        out[4] = promoted_pieces[promoted];
+        out[5] = '\0';
+    }
+    else
+    {
+        out[4] = '\0';
+    }
+
+    return out;
+}
+
 // for debug purposes
 void print_move_list(moves *move_list)
 {

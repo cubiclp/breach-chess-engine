@@ -41,11 +41,11 @@ void debug()
 {
     parse_fen(tricky_position);
     U64 total = 0;
-    for (int i = 0; i < 1; i++)
+    for (int i = 0; i < 100; i++)
     {
         clear_hash_table();
         U64 time = get_time_ms();
-        search_position(14);
+        search_position(10);
         U64 end = get_time_ms();
         printf("%llu ms\n", end - time);
         total += end - time;

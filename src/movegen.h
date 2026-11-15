@@ -9,6 +9,7 @@ enum { all_moves, only_captures };
 
 // for uci purpose
 void print_move(int move);
+char *print_move_to_string(int move, char *out);
 
 // for debug purposes
 void print_move_list(moves *move_list);

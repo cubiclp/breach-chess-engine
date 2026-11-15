@@ -6,6 +6,7 @@
 #include "board.h"
 #include "tt.h"
 #include "staticanalysis.h"
+#include <stdarg.h>
 
 #define max_history 7000
 
@@ -649,6 +650,17 @@ static inline int negamax(int alpha, int beta, int depth)
     return alpha;
 }
 
+static int min_info_depth = 6;   // make this a UCI option later if you like
+
+static void append(char *buf, size_t size, const char *fmt, ...)
+{
+    size_t len = strlen(buf);
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf + len, size - len, fmt, args);
+    va_end(args);
+}
+
 void search_position(int depth)
 {
     starttime = get_time_ms();
@@ -667,6 +679,9 @@ void search_position(int depth)
     int beta = infinity;
 
     int best_root_move = 0;
+
+    char info_buf[2048] = "";
+    int info_printed = 0;
 
     // iterative deepening
     for (int current_depth = 1; current_depth <= depth; current_depth++)
@@ -698,22 +713,30 @@ void search_position(int depth)
         alpha = score - 50;
         beta = score + 50;
 
+        info_buf[0] = 0;
+        U64 elapsed = get_time_ms() - starttime;
+        U64 nps = nodes * 1000 / (elapsed ? elapsed : 1);
+
         if (score > -mate_value && score < -mate_score)
-            printf("info score mate %d depth %d nodes %llu time %llu pv ", -(score + mate_value) / 2 - 1, current_depth, (unsigned long long) nodes, (unsigned long long) (get_time_ms() - starttime));
+            append(info_buf, sizeof(info_buf), "info score mate %d depth %d nodes %llu nps %llu time %llu pv ", -(score + mate_value) / 2 - 1, current_depth, (unsigned long long) nodes, nps, elapsed);
 
         else if (score > mate_score && score < mate_value)
-            printf("info score mate %d depth %d nodes %llu time %llu pv ", (mate_value - score) / 2 + 1, current_depth, (unsigned long long) nodes, (unsigned long long) (get_time_ms() - starttime));
+            append(info_buf, sizeof(info_buf), "info score mate %d depth %d nodes %llu nps %llu time %llu pv ", (mate_value - score) / 2 + 1, current_depth, (unsigned long long) nodes, nps, elapsed);
 
         else
-            printf("info score cp %d depth %d nodes %llu time %llu pv ", score, current_depth, (unsigned long long) nodes, (unsigned long long) (get_time_ms() - starttime));
+            append(info_buf, sizeof(info_buf), "info score cp %d depth %d nodes %llu nps %llu time %llu pv ", score, current_depth, (unsigned long long) nodes, nps, elapsed);
 
         for (int count = 0; count < pv_length[0]; count++)
         {
-            print_move(pv_table[0][count]);
-            printf(" ");
+            char mv[6];
+            append(info_buf, sizeof(info_buf), "%s ", print_move_to_string(pv_table[0][count], mv));
         }
 
-        printf("\n");
+        if (current_depth >= min_info_depth)
+        {
+            printf("%s\n", info_buf);
+            info_printed = 1;
+        }
     }
 
     // never print an empty/garbage move (e.g. "stop" during depth 1)
@@ -736,7 +759,21 @@ void search_position(int depth)
         }
     }
 
-    printf("bestmove ");
-    print_move(best_root_move);
-    printf("\n");
+    if (!info_printed && info_buf[0])
+    {
+        printf("%s\n", info_buf);
+    }
+
+    while (infinite && !stopped)
+    {
+        communicate();
+#ifdef _WIN32
+        Sleep(1);
+#else
+        usleep(1000);
+#endif
+    }
+
+    char buf[6];
+    printf("bestmove %s\n", print_move_to_string(best_root_move, buf));
 }
