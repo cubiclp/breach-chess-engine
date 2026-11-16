@@ -368,6 +368,11 @@ void init_search_tables(void)
     }
 }
 
+static inline int futility_margin(int depth)
+{
+    return 100 + 80 * depth;
+}
+
 // negamax alpha beta search
 static inline int negamax(int alpha, int beta, int depth)
 {
@@ -516,6 +521,24 @@ static inline int negamax(int alpha, int beta, int depth)
         }
 
         legal_moves++;
+
+        // futility pruning: skip quiet, non-checking moves when the position is hopeless.
+        // done after make_move so we know whether the move gives check, and after
+        // legal_moves++ so a pruned move can never fake a checkmate/stalemate.
+        if (moves_searched > 0 &&
+            !pv_node && !in_check &&
+            depth <= 3 &&
+            abs(alpha) < mate_score &&
+            static_eval + futility_margin(depth) <= alpha &&
+            get_move_capture(move_list->moves[count]) == 0 &&
+            get_move_promoted(move_list->moves[count]) == 0 &&
+            !is_square_attacked(get_ls1b_index(bitboards[side == white ? piece_K : piece_k]), side ^ 1))
+        {
+            ply--;
+            repetition_index--;
+            restore_board();
+            continue;
+        }
 
         // full depth search
         if (moves_searched == 0)

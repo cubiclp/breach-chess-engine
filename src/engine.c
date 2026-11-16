@@ -39,13 +39,13 @@ void bench()
 
 void debug()
 {
-    parse_fen(tricky_position);
+    parse_fen(cmk_position);
     U64 total = 0;
-    for (int i = 0; i < 100; i++)
+    for (int i = 0; i < 1; i++)
     {
         clear_hash_table();
         U64 time = get_time_ms();
-        search_position(10);
+        search_position(20);
         U64 end = get_time_ms();
         printf("%llu ms\n", end - time);
         total += end - time;
