@@ -94,6 +94,9 @@
 
 # king semi open and open
 12 25
+
+# passed blocked, passed king enemy, passed king own
+3 0 0
     
 # -------------------------- #
 # ----- endgame values ----- #
@@ -181,7 +184,7 @@
 0 10 15 30 55 90 140 0
 
 # the king safety values are only here for symmetry reasons,
-# they are not used in the eval itself
+# they are not used in the endgame eval itself
 
 # king attack weight
 0 0 0 0
@@ -194,3 +197,6 @@
 
 # king semi open and open
 0 0
+
+# passed blocked, passed king enemy, passed king own
+6 2 1

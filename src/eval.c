@@ -268,11 +268,12 @@ static inline int relative_rank(int color, int sq)
     return color == white ? 7 - (sq >> 3) : (sq >> 3);
 }
 
-static inline void eval_passed_pawns(int *mg_total, int *eg_total, int color)
+static inline void eval_passed_pawns(int *mg_total, int *eg_total, int color, U64 *passed_out)
 {
     int base = P_FOR_SIDE(color);
     U64 enemy_pawns = bitboards[P_FOR_SIDE(color ^ 1) + piece_P];
 
+    U64 passed = 0ULL;
     U64 bb = bitboards[base + piece_P];
     while (bb)
     {
@@ -281,6 +282,8 @@ static inline void eval_passed_pawns(int *mg_total, int *eg_total, int color)
         // passed: no enemy pawn on its file or adjacent files in front of it
         if (!(passed_masks[color][sq] & enemy_pawns))
         {
+            passed |= 1ULL << sq;
+
             int r = relative_rank(color, sq);
             *mg_total += mg_weights.passed_pawns[r];
             *eg_total += eg_weights.passed_pawns[r];
@@ -288,12 +291,15 @@ static inline void eval_passed_pawns(int *mg_total, int *eg_total, int color)
 
         pop_bit(bb, sq);
     }
+
+    *passed_out = passed;
 }
 
 typedef struct {
     U64 wp, bp;      // key: exact pawn bitboards, so no collisions possible
     int mg, eg;      // pawn-structure + passed score, white minus black
     U64 att[2];      // pawn attacks per color, reused for the mobility area
+    U64 passed[2];   // passed pawns per color
 } PawnEntry;
 
 #define PAWN_TABLE_BITS 14
@@ -313,14 +319,17 @@ static inline PawnEntry *probe_pawns(void)
     }
 
     int mgw = 0, egw = 0, mgb = 0, egb = 0;
+    U64 pw = 0ULL, pb = 0ULL;
     eval_pawn_structure(&mgw, &egw, white);
-    eval_passed_pawns(&mgw, &egw, white);
+    eval_passed_pawns(&mgw, &egw, white, &pw);
     eval_pawn_structure(&mgb, &egb, black);
-    eval_passed_pawns(&mgb, &egb, black);
+    eval_passed_pawns(&mgb, &egb, black, &pb);
 
     e->wp = wp;  e->bp = bp;
     e->mg = mgw - mgb;
     e->eg = egw - egb;
+    e->passed[white] = pw;
+    e->passed[black] = pb;
     e->att[white] = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
     e->att[black] = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
     return e;
@@ -377,6 +386,38 @@ static inline void eval_king_safety(int *mg_total, int *eg_total, int color)
     }
 }
 
+static inline int king_dist(int a, int b)
+{
+    int df = abs((a & 7) - (b & 7));
+    int dr = abs((a >> 3) - (b >> 3));
+    return df > dr ? df : dr;
+}
+
+static inline void eval_passed_pieces(int *mg_total, int *eg_total, int color, U64 passed)
+{
+    int enemy = color ^ 1;
+
+    while (passed)
+    {
+        int sq = get_ls1b_index(passed);
+        passed &= passed - 1;
+
+        int rf   = relative_rank(color, sq) - 1;          // 0..5
+        int stop = (color == white) ? sq - 8 : sq + 8;    // square in front of the pawn
+
+        // enemy piece sitting on the stop square
+        if (occupancies[enemy] & (1ULL << stop))
+        {
+            *mg_total -= rf * mg_weights.passed_blocked;
+            *eg_total -= rf * eg_weights.passed_blocked;
+        }
+
+        // enemy king far away is good, own king close is good (endgame only)
+        *eg_total += rf * (king_dist(eval_king_sq[enemy], stop) * eg_weights.passed_king_enemy
+                         - king_dist(eval_king_sq[color], stop) * eg_weights.passed_king_own);
+    }
+}
+
 static inline void eval_prepare()
 {
     int wk = get_ls1b_index(bitboards[piece_K]);
@@ -418,6 +459,9 @@ int evaluate(void)
 
     eval_king_safety(&mg[us], &eg[us], us);
     eval_king_safety(&mg[them], &eg[them], them);
+
+    eval_passed_pieces(&mg[us], &eg[us], us, pe->passed[us]);
+    eval_passed_pieces(&eg[them], &eg[them], them, pe->passed[them]);
 
     // tapered eval
     int mg_eval = mg[us] - mg[them];

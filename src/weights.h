@@ -24,6 +24,9 @@ typedef struct weights {
     I16 shield_far;
     I16 king_semi_open;
     I16 king_open;
+    I16 passed_blocked;
+    I16 passed_king_enemy;
+    I16 passed_king_own;
 } weights;
 
 extern weights mg_weights;
