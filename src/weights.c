@@ -1,6 +1,7 @@
 #include "weights.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include "../generated/embedded_weights.h"
 
 weights mg_weights;
 weights eg_weights;
@@ -9,7 +10,7 @@ static char *original_content;
 
 void init_weights()
 {
-    parse_weights_from_file(WEIGHTS_FILE);
+    parse_weights(embedded_weights);
 }
 
 void deinit_weights()

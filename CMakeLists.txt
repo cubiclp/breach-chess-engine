@@ -60,3 +60,15 @@ endif()
 set(WEIGHTS_FILE ${CMAKE_SOURCE_DIR}/data/weights.txt)
 
 target_compile_definitions(breachengine PRIVATE WEIGHTS_FILE=\"${WEIGHTS_FILE}\")
+
+set(WEIGHTS_TXT "${CMAKE_CURRENT_SOURCE_DIR}/data/weights.txt")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${WEIGHTS_TXT}")
+
+file(READ "${WEIGHTS_TXT}" WEIGHTS_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1, " WEIGHTS_BYTES "${WEIGHTS_HEX}")
+
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_weights.h"
+        "static char embedded_weights[] = { ${WEIGHTS_BYTES}0x00 };\n"
+)
+
+target_include_directories(breachengine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
