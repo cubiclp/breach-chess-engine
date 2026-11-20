@@ -461,7 +461,7 @@ int evaluate(void)
     eval_king_safety(&mg[them], &eg[them], them);
 
     eval_passed_pieces(&mg[us], &eg[us], us, pe->passed[us]);
-    eval_passed_pieces(&eg[them], &eg[them], them, pe->passed[them]);
+    eval_passed_pieces(&mg[them], &eg[them], them, pe->passed[them]);
 
     // tapered eval
     int mg_eval = mg[us] - mg[them];

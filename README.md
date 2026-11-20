@@ -1,6 +1,8 @@
 <div align="center">
 <img src="logo.png" alt="logo" width="200"/>
 
+<div align="left">
+
 ## 
 Breach — UCI Chess Engine
 
@@ -38,6 +40,8 @@ Search
 - Aspiration windows
 - MVV LVA & SEE move ordering
 - SEE pruning
+- Futility pruning
+- Internal iterative reduction
 
 Eval - HCE
 
@@ -48,3 +52,9 @@ Eval - HCE
 - Basic king safety
 - Isolated, doubled & passed pawns
 - Passed pieces
+- Tapered evaluation
+
+### License
+
+Breach is licensed under the GNU General Public License v3.0 (GPL-3.0), 
+inherited from [BBC](https://github.com/maksimKorzh/bbc) by Maksim Korzh.

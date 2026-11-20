@@ -53,7 +53,7 @@ void debug()
     printf("%llu ms on average\n", total / 100);
 }
 
-//#define BREACH_DEBUG
+#define BREACH_DEBUG
 
 int main()
 {

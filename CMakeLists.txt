@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.3)
+cmake_minimum_required(VERSION 3.20)
 project(breachengine C)
 
 message(STATUS "C compiler: ${CMAKE_C_COMPILER}")
@@ -47,6 +47,10 @@ target_compile_definitions(breachengine PRIVATE
         $<$<CONFIG:Debug>:BREACH_DEBUG>
         $<$<CONFIG:ReleaseDebug>:BREACH_DEBUG>
 )
+
+if(UNIX)
+    target_link_libraries(breachengine PRIVATE m)
+endif()
 
 if(ipo_supported)
     set_property(TARGET breachengine PROPERTY

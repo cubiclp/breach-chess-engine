@@ -325,7 +325,7 @@ void uci_loop(void)
         }
         else if (strncmp(input, "uci", 3) == 0)
         {
-            printf("id name Breach\n");
+            printf("id name Breach 0.1\n");
             printf("id author cubiclp\n");
             printf("uciok\n");
         }

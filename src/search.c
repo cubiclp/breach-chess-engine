@@ -374,7 +374,7 @@ static inline int futility_margin(int depth)
 }
 
 // negamax alpha beta search
-static inline int negamax(int alpha, int beta, int depth)
+static inline int negamax(int alpha, int beta, int depth, int can_null)
 {
     int score;
 
@@ -431,7 +431,8 @@ static inline int negamax(int alpha, int beta, int depth)
 
     // null move pruning
     if (!pv_node && depth >= 3 && in_check == 0 && ply && static_eval >= beta
-        && (occupancies[side] & ~(bitboards[side * 6 + piece_P] | bitboards[side * 6 + piece_K])))
+        && (occupancies[side] & ~(bitboards[side * 6 + piece_P] | bitboards[side * 6 + piece_K]))
+        && can_null && abs(beta) < mate_score)
     {
         copy_board();
 
@@ -453,7 +454,7 @@ static inline int negamax(int alpha, int beta, int depth)
         hash_key ^= side_key;
 
         // depth - 1 - R, R grows with depth
-        score = -negamax(-beta, -beta + 1, depth - 1 - (2 + depth / 6));
+        score = -negamax(-beta, -beta + 1, depth - 1 - (2 + depth / 6), 0);
 
         ply--;
 
@@ -543,7 +544,7 @@ static inline int negamax(int alpha, int beta, int depth)
         // full depth search
         if (moves_searched == 0)
         {
-            score = -negamax(-beta, -alpha, depth - 1);
+            score = -negamax(-beta, -alpha, depth - 1, 1);
         }
         // LMR (late move reduction)
         else
@@ -560,7 +561,7 @@ static inline int negamax(int alpha, int beta, int depth)
                 if (pv_node) R--;
                 if (R < 1) R = 1;
                 if (R > depth - 2) R = depth - 2;
-                score = -negamax(-alpha - 1, -alpha, depth - 1 - R);
+                score = -negamax(-alpha - 1, -alpha, depth - 1 - R, 1);
             }
             // hack to ensure that full-depth search is done
             else
@@ -572,11 +573,11 @@ static inline int negamax(int alpha, int beta, int depth)
             if(score > alpha)
             {
                 // re-search at full depth but with narrowed score bandwith
-                score = -negamax(-alpha - 1, -alpha, depth-1);
+                score = -negamax(-alpha - 1, -alpha, depth-1, 1);
 
                 // if LMR fails re-search at full depth and full score bandwith
                 if((score > alpha) && (score < beta))
-                    score = -negamax(-beta, -alpha, depth-1);
+                    score = -negamax(-beta, -alpha, depth-1, 1);
             }
         }
 
@@ -718,7 +719,7 @@ void search_position(int depth)
 
         follow_pv = 1;
 
-        score = negamax(alpha, beta, current_depth);
+        score = negamax(alpha, beta, current_depth, 1);
 
         if (stopped == 1) break;
 
