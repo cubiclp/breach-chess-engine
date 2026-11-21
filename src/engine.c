@@ -6,6 +6,7 @@
 #include "search.h"
 #include "uci.h"
 #include "weights.h"
+#include "../tuner/tuner.h"
 
 
 void init_all()
@@ -53,6 +54,16 @@ void debug()
     printf("%llu ms on average\n", total / 100);
 }
 
+#define WEIGHTS_FILE_PATH_FOR_TUNING "C:\\Users\\User\\Documents\\programs\\c\\breachengine\\data\\weights.txt"
+#define DATA_SET_PATH_FOR_TUNING_LICHESS "C:\\Users\\User\\Documents\\programs\\.data\\lichess-big3-resolved.book"
+#define DATA_SET_PATH_FOR_TUNING  "C:\\Users\\User\\Documents\\programs\\.data\\quiet-labeled.epd"
+
+void texel_tune()
+{
+    side = white;
+    tune(WEIGHTS_FILE_PATH_FOR_TUNING, DATA_SET_PATH_FOR_TUNING_LICHESS, 0);
+}
+
 //#define BREACH_DEBUG
 
 int main()
@@ -60,7 +71,7 @@ int main()
     init_all();
 
 #ifdef BREACH_DEBUG
-    debug();
+    texel_tune();
 #else
     uci_loop();
 #endif

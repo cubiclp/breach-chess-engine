@@ -41,7 +41,7 @@ void parse_weights(char *raw)
         // Skip comments
         if (raw[index] == '#')
         {
-            while (raw[index] && raw[index] != '\n')
+            while (raw[index] && raw[index] != '\n' && raw[index] != '\r')
             {
                 index++;
             }
@@ -131,7 +131,7 @@ void write_weights(char *file)
     memcpy(w, &mg_weights, sizeof(weights));
     memcpy(w + vals_len, &eg_weights, sizeof(weights));
 
-    FILE *f = fopen(file, "w");
+    FILE *f = fopen(file, "wb");   // binary: keep the template's line endings exactly
 
     if (!f)
     {
@@ -147,7 +147,7 @@ void write_weights(char *file)
         // Copy comments through untouched
         if (*p == '#')
         {
-            while (*p && *p != '\n')
+            while (*p && *p != '\n' && *p != '\r')
             {
                 fputc(*p++, f);
             }

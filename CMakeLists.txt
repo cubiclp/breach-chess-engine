@@ -36,6 +36,8 @@ add_executable(breachengine
         src/tt.h
         src/staticanalysis.c
         src/staticanalysis.h
+        tuner/tuner.c
+        tuner/tuner.h
 )
 
 target_compile_options(breachengine PRIVATE

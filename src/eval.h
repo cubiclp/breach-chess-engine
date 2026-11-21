@@ -6,6 +6,8 @@
 #include "attacks.h"
 #include "weights.h"
 
+void eval_set_pawn_cache(int on);
+
 void init_eval();
 
 // static evaluation from the point of view of the side to move

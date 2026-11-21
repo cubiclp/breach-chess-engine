@@ -4,6 +4,8 @@
 
 #define FILE_A_BB 0x0101010101010101ULL
 
+static int pawn_cache_on = 1;
+
 U64 file_masks[64];
 
 static U64 mob_area[2];
@@ -313,7 +315,7 @@ static inline PawnEntry *probe_pawns(void)
     U64 h = (wp * 0x9E3779B97F4A7C15ULL) ^ (bp * 0xC2B2AE3D27D4EB4FULL);
     PawnEntry *e = &pawn_table[h >> (64 - PAWN_TABLE_BITS)];
 
-    if (e->wp == wp && e->bp == bp)
+    if (pawn_cache_on && e->wp == wp && e->bp == bp)
     {
         return e; // hit
     }
@@ -333,6 +335,12 @@ static inline PawnEntry *probe_pawns(void)
     e->att[white] = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
     e->att[black] = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
     return e;
+}
+
+void eval_set_pawn_cache(int on)
+{
+    if (on && !pawn_cache_on) memset(pawn_table, 0, sizeof pawn_table);
+    pawn_cache_on = on;
 }
 
 static inline void eval_king_safety(int *mg_total, int *eg_total, int color)
