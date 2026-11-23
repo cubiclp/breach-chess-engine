@@ -5,14 +5,15 @@
 
 typedef struct weights {
     I16 material[6];
-    I16 pst_pawn[64];
+    I16 pst_pawn[2][64];   // [0] kings on the same side of the board, [1] on opposite sides; files mirrored so the own king is on the left
     I16 pst_knight[64];
     I16 pst_bishop[64];
     I16 pst_rook[64];
     I16 pst_queen[64];
     I16 pst_king[64];
-    I16 mobility_base[3];
-    I16 mobility[3];
+    I16 mobility_knight[9];    // indexed by the number of safe squares attacked
+    I16 mobility_bishop[14];
+    I16 mobility_rook[15];
     I16 bishop_pair;
     I16 doubled_pawns;
     I16 isolated_pawns;

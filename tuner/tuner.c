@@ -14,7 +14,7 @@
 //      dataset. If that loss matches the model's loss, the linear model was right.
 //
 // This works because the eval is linear in (almost) all weights. The exceptions are the
-// mobility bases and the king-danger parameters, which are frozen (see freeze_nonlinear).
+// king-danger parameters, which are frozen (see freeze_nonlinear).
 // The same tuner keeps working when you add or change eval terms, as long as a new weight
 // enters the score linearly. If it does not, the VERIFY step shows a mismatch.
 //
@@ -40,7 +40,7 @@ static void set_position(char *fen) { parse_fen(fen); }   // must set bitboards,
 // ---- settings ------------------------------------------------------------------------
 
 #define STEP        960     // probe size in weight units; a multiple of 24 so the phase taper divides exactly
-#define EPOCHS      2000
+#define EPOCHS      1000
 #define LEARN_RATE  1.0     // Adam step size in weight units; decays linearly to zero
 #define HOLDOUT     20      // every 20th position is only used for validation
 
@@ -70,7 +70,6 @@ static void freeze(size_t byte_offset, size_t count)
 static void freeze_nonlinear(void)
 {
     memset(frozen, 0, sizeof frozen);
-    FREEZE(mobility_base);          // (m - base) * mobility
     FREEZE(king_attack_weight);     // squared inside the king danger term
     FREEZE(king_danger_div);
     FREEZE(king_danger_max);
@@ -380,8 +379,19 @@ static int run(char *weights_file, char *positions_file, int max_positions)
     if (!check) { perror("weights file"); return -1; }
     fclose(check);
 
+    // parse_weights_from_file() only reports problems on stderr, so detect a failed parse here:
+    // a successful one overwrites the sentinel. Evaluating with all-zero weights would divide by zero.
+    weights old_mg = mg_weights, old_eg = eg_weights;
+    memset(&mg_weights, 0x7F, sizeof mg_weights);
     deinit_weights();                           // forget the template of an earlier load
     parse_weights_from_file(weights_file);
+    if (mg_weights.material[0] == 0x7F7F)
+    {
+        mg_weights = old_mg;
+        eg_weights = old_eg;
+        fprintf(stderr, "tune: could not read %d weights from %s, nothing was changed\n", 2 * N_WEIGHTS, weights_file);
+        return -1;
+    }
     freeze_nonlinear();
 
     double w_start[N_PARAMS], theta[N_PARAMS] = {0};

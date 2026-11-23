@@ -4,8 +4,6 @@
 
 #define FILE_A_BB 0x0101010101010101ULL
 
-static int pawn_cache_on = 1;
-
 U64 file_masks[64];
 
 static U64 mob_area[2];
@@ -130,8 +128,15 @@ static inline void eval_material_and_placement(int *mg_total, int *eg_total, int
     int mg_score = 0;
     int eg_score = 0;
 
+    // Pawn table choice: mirror the files so the own king is always on the left half of the
+    // board, and pick the table by whether the enemy king is on the same half or the other one.
+    int own_right   = (eval_king_sq[color] & 7) >= 4;
+    int enemy_right = (eval_king_sq[color ^ 1] & 7) >= 4;
+    int pawn_table  = own_right != enemy_right;
+    int pawn_flip   = own_right ? 7 : 0;
+
     I16 *mg_pst[6] = {
-        mg_weights.pst_pawn,
+        mg_weights.pst_pawn[pawn_table],
         mg_weights.pst_knight,
         mg_weights.pst_bishop,
         mg_weights.pst_rook,
@@ -140,7 +145,7 @@ static inline void eval_material_and_placement(int *mg_total, int *eg_total, int
     };
 
     I16 *eg_pst[6] = {
-        eg_weights.pst_pawn,
+        eg_weights.pst_pawn[pawn_table],
         eg_weights.pst_knight,
         eg_weights.pst_bishop,
         eg_weights.pst_rook,
@@ -155,12 +160,13 @@ static inline void eval_material_and_placement(int *mg_total, int *eg_total, int
         int mg_placement = 0;
         int eg_placement = 0;
         int count = 0;
+        int flip = piece == piece_P ? pawn_flip : 0;
 
         while (bb)
         {
             int sq = get_ls1b_index(bb);
             // mirror the table for black
-            int index = color == white ? sq : (sq ^ 56);
+            int index = (color == white ? sq : (sq ^ 56)) ^ flip;
 
             mg_placement += mg_pst[piece][index];
             eg_placement += eg_pst[piece][index];
@@ -197,8 +203,8 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
         att = knight_attacks[sq];
         add_king_attack(color, 0, att);
         int m = count_bits(att & area);
-        mg += (m - mg_weights.mobility_base[0]) * mg_weights.mobility[0];
-        eg += (m - eg_weights.mobility_base[0]) * eg_weights.mobility[0];
+        mg += mg_weights.mobility_knight[m];
+        eg += eg_weights.mobility_knight[m];
     }
 
     bb = bitboards[base + piece_B];
@@ -209,8 +215,8 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
         att = get_bishop_attacks(sq, occ);
         add_king_attack(color, 1, att);
         int m = count_bits(att & area);
-        mg += (m - mg_weights.mobility_base[1]) * mg_weights.mobility[1];
-        eg += (m - eg_weights.mobility_base[1]) * eg_weights.mobility[1];
+        mg += mg_weights.mobility_bishop[m];
+        eg += eg_weights.mobility_bishop[m];
     }
 
     bb = bitboards[base + piece_R];
@@ -221,8 +227,8 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
         att = get_rook_attacks(sq, occ);
         add_king_attack(color, 2, att);
         int m = count_bits(att & area);
-        mg += (m - mg_weights.mobility_base[2]) * mg_weights.mobility[2];
-        eg += (m - eg_weights.mobility_base[2]) * eg_weights.mobility[2];
+        mg += mg_weights.mobility_rook[m];
+        eg += eg_weights.mobility_rook[m];
     }
 
     *mg_total += mg;
@@ -308,6 +314,16 @@ typedef struct {
 #define PAWN_TABLE_SIZE (1 << PAWN_TABLE_BITS) // 16k entries is plenty
 static PawnEntry pawn_table[PAWN_TABLE_SIZE];
 
+static int pawn_cache_on = 1;
+
+// The tuner switches the cache off while it changes weights. Turning it back on flushes it:
+// an all-zero entry is exactly the (correct) entry for a position without pawns.
+void eval_set_pawn_cache(int on)
+{
+    if (on && !pawn_cache_on) memset(pawn_table, 0, sizeof pawn_table);
+    pawn_cache_on = on;
+}
+
 static inline PawnEntry *probe_pawns(void)
 {
     U64 wp = bitboards[piece_P], bp = bitboards[piece_p];
@@ -335,12 +351,6 @@ static inline PawnEntry *probe_pawns(void)
     e->att[white] = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
     e->att[black] = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
     return e;
-}
-
-void eval_set_pawn_cache(int on)
-{
-    if (on && !pawn_cache_on) memset(pawn_table, 0, sizeof pawn_table);
-    pawn_cache_on = on;
 }
 
 static inline void eval_king_safety(int *mg_total, int *eg_total, int color)
