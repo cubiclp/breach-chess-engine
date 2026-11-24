@@ -66,4 +66,10 @@ void parse_fen(char *fen);
     side = side_copy, enpassant = enpassant_copy, castle = castle_copy;     \
     hash_key = hash_key_copy;
 
+#define DARK_SQUARES_MASK 0x55AA55AA55AA55AAULL
+#define LIGHT_SQUARES_MASK 0xAA55AA55AA55AA55ULL
+
+#define IS_DARK(sq) ((((sq) >> 3) + (sq)) & 1)
+#define IS_LIGHT(sq) (!(IS_DARK(sq)))
+
 #endif

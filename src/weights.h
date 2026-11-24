@@ -4,6 +4,7 @@
 #include "types.h"
 
 typedef struct weights {
+    I16 tempo;
     I16 material[6];
     I16 pst_pawn[2][64];   // [0] kings on the same side of the board, [1] on opposite sides; files mirrored so the own king is on the left
     I16 pst_knight[64];
@@ -16,8 +17,12 @@ typedef struct weights {
     I16 mobility_rook[15];
     I16 mobility_queen[28];
     I16 bishop_pair;
+    I16 pawn_bishop_compensate;
     I16 doubled_pawns;
     I16 isolated_pawns;
+    I16 connected_pawns[8];
+    I16 phalanx_pawns[8];
+    I16 backward_pawns;
     I16 passed_pawns[8];
     I16 king_attack_weight[4];
     I16 king_danger_div;

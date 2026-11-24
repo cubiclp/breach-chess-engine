@@ -247,19 +247,44 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
     *eg_total += eg;
 }
 
-static inline void eval_bishop_pair(int *mg_total, int *eg_total, int color)
+static inline void eval_bishop_and_pawns(int *mg_total, int *eg_total, int color)
 {
-    if (count_bits(bitboards[B_FOR_SIDE(color)]) >= 2)
+    U64 bb = bitboards[B_FOR_SIDE(color)];
+
+    if (!bb)
+    {
+        return;
+    }
+
+    int count = count_bits(bb);
+
+    if (count >= 2)
     {
         *mg_total += mg_weights.bishop_pair;
         *eg_total += eg_weights.bishop_pair;
     }
+
+    if (count == 1)
+    {
+        U64 pawn_mask = IS_DARK(get_ls1b_index(bb)) ? LIGHT_SQUARES_MASK : DARK_SQUARES_MASK;
+        int c = count_bits(bitboards[P_FOR_SIDE(color)] & pawn_mask);
+
+        *mg_total += c * mg_weights.pawn_bishop_compensate;
+        *eg_total += c * eg_weights.pawn_bishop_compensate;
+    }
+}
+
+// 0 = own back rank, 7 = promotion rank
+static inline int relative_rank(int color, int sq)
+{
+    return color == white ? 7 - (sq >> 3) : (sq >> 3);
 }
 
 // doubled and isolated pawns
-static inline void eval_pawn_structure(int *mg_total, int *eg_total, int color)
+static inline void eval_pawn_structure(int *mg_total, int *eg_total, int color, U64 own_att, U64 enemy_att)
 {
     U64 own_pawns = bitboards[P_FOR_SIDE(color) + piece_P];
+    int enemy = color ^ 1;
 
     for (int f = 0; f < 8; f++)
     {
@@ -280,12 +305,44 @@ static inline void eval_pawn_structure(int *mg_total, int *eg_total, int color)
             *eg_total -= eg_weights.isolated_pawns * n;
         }
     }
-}
 
-// 0 = own back rank, 7 = promotion rank
-static inline int relative_rank(int color, int sq)
-{
-    return color == white ? 7 - (sq >> 3) : (sq >> 3);
+    U64 connected = own_pawns & own_att;
+    while (connected)
+    {
+        int sq = get_ls1b_index(connected);
+        int r = relative_rank(color, sq);
+        *mg_total += mg_weights.connected_pawns[r];
+        *eg_total += eg_weights.connected_pawns[r];
+        pop_bit(connected, sq);
+    }
+
+    U64 phalanx = own_pawns & (((own_pawns >> 1) & not_h_file) | ((own_pawns << 1) & not_a_file));
+    while (phalanx)
+    {
+        int sq = get_ls1b_index(phalanx);
+        int r = relative_rank(color, sq);
+        *mg_total += mg_weights.phalanx_pawns[r];
+        *eg_total += eg_weights.phalanx_pawns[r];
+        pop_bit(phalanx, sq);
+    }
+
+    // backward pawns
+    U64 bb = own_pawns;
+    while (bb)
+    {
+        int sq = get_ls1b_index(bb);
+        U64 adjacent = own_pawns & adjacent_files[sq & 7];
+        U64 behind = passed_masks[enemy][sq] | (0xFFULL << (sq & ~7));
+        U64 stop_bb = (color == white) ?((1ULL << sq) >> 8) : ((1ULL << sq) << 8);
+
+        if (adjacent && !(adjacent & behind) && (enemy_att & stop_bb))
+        {
+            *mg_total += mg_weights.backward_pawns;
+            *eg_total += eg_weights.backward_pawns;
+        }
+
+        pop_bit(bb, sq);
+    }
 }
 
 static inline void eval_passed_pawns(int *mg_total, int *eg_total, int color, U64 *passed_out)
@@ -348,11 +405,14 @@ static inline PawnEntry *probe_pawns(void)
         return e; // hit
     }
 
+    U64 att_w = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
+    U64 att_b = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
+
     int mgw = 0, egw = 0, mgb = 0, egb = 0;
     U64 pw = 0ULL, pb = 0ULL;
-    eval_pawn_structure(&mgw, &egw, white);
+    eval_pawn_structure(&mgw, &egw, white, att_w, att_b);
     eval_passed_pawns(&mgw, &egw, white, &pw);
-    eval_pawn_structure(&mgb, &egb, black);
+    eval_pawn_structure(&mgb, &egb, black, att_b, att_w);
     eval_passed_pawns(&mgb, &egb, black, &pb);
 
     e->wp = wp;  e->bp = bp;
@@ -360,8 +420,8 @@ static inline PawnEntry *probe_pawns(void)
     e->eg = egw - egb;
     e->passed[white] = pw;
     e->passed[black] = pb;
-    e->att[white] = ((wp >> 7) & not_a_file) | ((wp >> 9) & not_h_file);
-    e->att[black] = ((bp << 7) & not_h_file) | ((bp << 9) & not_a_file);
+    e->att[white] = att_w;
+    e->att[black] = att_b;
     return e;
 }
 
@@ -505,15 +565,19 @@ int evaluate(void)
 
     eval_prepare();
 
+    mg[us] += mg_weights.tempo;
+    eg[us] += eg_weights.tempo;
+
     eval_material_and_placement(&mg[us], &eg[us], us);
     eval_material_and_placement(&mg[them], &eg[them], them);
 
     eval_mobility(&mg[us], &eg[us], us);
     eval_mobility(&mg[them], &eg[them], them);
 
-    eval_bishop_pair(&mg[us], &eg[us], us);
-    eval_bishop_pair(&mg[them], &eg[them], them);
+    eval_bishop_and_pawns(&mg[us], &eg[us], us);
+    eval_bishop_and_pawns(&mg[them], &eg[them], them);
 
+    // pawn structure
     mg[us] += (us == white) ? pe->mg : -pe->mg;   // entry is white-relative
     eg[us] += (us == white) ? pe->eg : -pe->eg;
 
