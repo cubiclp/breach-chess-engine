@@ -14,6 +14,7 @@ typedef struct weights {
     I16 mobility_knight[9];    // indexed by the number of safe squares attacked
     I16 mobility_bishop[14];
     I16 mobility_rook[15];
+    I16 mobility_queen[28];
     I16 bishop_pair;
     I16 doubled_pawns;
     I16 isolated_pawns;
@@ -28,6 +29,9 @@ typedef struct weights {
     I16 passed_blocked;
     I16 passed_king_enemy;
     I16 passed_king_own;
+    I16 rook_open;
+    I16 rook_semi_open;
+    I16 rook_seventh_rank;
 } weights;
 
 extern weights mg_weights;

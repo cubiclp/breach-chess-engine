@@ -231,6 +231,18 @@ static inline void eval_mobility(int *mg_total, int *eg_total, int color)
         eg += eg_weights.mobility_rook[m];
     }
 
+    bb = bitboards[base + piece_Q];
+    while (bb)
+    {
+        int sq = get_ls1b_index(bb);
+        bb &= bb - 1;
+        att = get_queen_attacks(sq, occ);
+        add_king_attack(color, 3, att);
+        int m = count_bits(att & area);
+        mg += mg_weights.mobility_queen[m];
+        eg += eg_weights.mobility_queen[m];
+    }
+
     *mg_total += mg;
     *eg_total += eg;
 }
@@ -360,15 +372,7 @@ static inline void eval_king_safety(int *mg_total, int *eg_total, int color)
     U64 own_pawns = bitboards[P_FOR_SIDE(color) + piece_P];
     U64 enemy_pawns = bitboards[P_FOR_SIDE(enemy) + piece_P];
 
-    // deal with the queen since we dont do that in mobility
-    U64 q = bitboards[Q_FOR_SIDE(enemy)];
-    int has_queen = q != 0;
-    while (q)
-    {
-        int sq = get_ls1b_index(q);
-        q &= q - 1;
-        add_king_attack(enemy, 3, get_queen_attacks(sq, occupancies[both]));
-    }
+    int has_queen = bitboards[Q_FOR_SIDE(enemy)] != 0;
 
     // king zone attack checking
     if (atk_count[enemy] >= 2)
@@ -436,6 +440,44 @@ static inline void eval_passed_pieces(int *mg_total, int *eg_total, int color, U
     }
 }
 
+static inline void eval_rooks(int *mg_total, int *eg_total, int color)
+{
+    U64 our_pawns   = bitboards[P_FOR_SIDE(color)];
+    U64 their_pawns = bitboards[P_FOR_SIDE(color ^ 1)];
+
+    U64 bb = bitboards[R_FOR_SIDE(color)];
+    while (bb)
+    {
+        int sq = get_ls1b_index(bb);
+        U64 file = file_masks[sq];
+
+        if (!(file & our_pawns))
+        {
+            if (!(file & their_pawns))
+            {
+                *mg_total += mg_weights.rook_open;
+                *eg_total += eg_weights.rook_open;
+            }
+            else
+            {
+                *mg_total += mg_weights.rook_semi_open;
+                *eg_total += eg_weights.rook_semi_open;
+            }
+        }
+
+        // 7th rank
+        if (relative_rank(color, sq) == 6
+            && (relative_rank(color, eval_king_sq[color ^ 1]) == 7
+                || ((0xFFULL << (sq & ~7)) & their_pawns)))
+        {
+            *mg_total += mg_weights.rook_seventh_rank;
+            *eg_total += eg_weights.rook_seventh_rank;
+        }
+
+        pop_bit(bb, sq);
+    }
+}
+
 static inline void eval_prepare()
 {
     int wk = get_ls1b_index(bitboards[piece_K]);
@@ -480,6 +522,9 @@ int evaluate(void)
 
     eval_passed_pieces(&mg[us], &eg[us], us, pe->passed[us]);
     eval_passed_pieces(&mg[them], &eg[them], them, pe->passed[them]);
+
+    eval_rooks(&mg[us], &eg[us], us);
+    eval_rooks(&mg[them], &eg[them], them);
 
     // tapered eval
     int mg_eval = mg[us] - mg[them];
