@@ -415,7 +415,7 @@ static inline int negamax(int alpha, int beta, int depth, int can_null)
         : get_ls1b_index(bitboards[piece_k]), side ^ 1);
 
     if (in_check) depth++;
-    if (depth == 0) return quiescene(alpha, beta);
+    if (depth <= 0) return quiescene(alpha, beta);
 
     nodes++;
 
@@ -429,10 +429,12 @@ static inline int negamax(int alpha, int beta, int depth, int can_null)
 
     int legal_moves = 0;
 
+    int has_non_pawn = (occupancies[side] & ~(bitboards[side * 6 + piece_P] | bitboards[side * 6 + piece_K])) != 0;
+
     // null move pruning
-    if (!pv_node && depth >= 3 && in_check == 0 && ply && static_eval >= beta
-        && (occupancies[side] & ~(bitboards[side * 6 + piece_P] | bitboards[side * 6 + piece_K]))
-        && can_null && abs(beta) < mate_score)
+    if (!pv_node && can_null && !in_check && ply > 0
+        && depth >= 3 && static_eval >= beta
+        && abs(beta) < mate_score && has_non_pawn)
     {
         copy_board();
 
@@ -448,13 +450,18 @@ static inline int negamax(int alpha, int beta, int depth, int can_null)
         }
 
         enpassant = no_sq;
-
         side ^= 1;
-
         hash_key ^= side_key;
 
+        int eval_bonus = (static_eval - beta) / 200;
+        if (eval_bonus > 3) eval_bonus = 3;
+
+        int R = 3 + depth / 3 + eval_bonus;
+        int next_depth = depth - 1 - R;
+        if (next_depth < 1) next_depth = 1;
+
         // depth - 1 - R, R grows with depth
-        score = -negamax(-beta, -beta + 1, depth - 1 - (2 + depth / 6), 0);
+        score = -negamax(-beta, -beta + 1, next_depth, 0);
 
         ply--;
 

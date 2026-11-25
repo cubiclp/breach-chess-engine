@@ -40,13 +40,13 @@ void bench()
 
 void debug()
 {
-    parse_fen(cmk_position);
+    parse_fen(tricky_position);
     U64 total = 0;
     for (int i = 0; i < 1; i++)
     {
         clear_hash_table();
         U64 time = get_time_ms();
-        search_position(20);
+        search_position(16);
         U64 end = get_time_ms();
         printf("%llu ms\n", end - time);
         total += end - time;
@@ -71,7 +71,7 @@ int main()
     init_all();
 
 #ifdef BREACH_DEBUG
-    texel_tune();
+    debug();
 #else
     uci_loop();
 #endif
