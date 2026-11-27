@@ -355,6 +355,8 @@ static inline int quiescene(int alpha, int beta)
 static const int full_depth_moves = 3;
 static const int reduction_limit = 3;
 
+static int static_evals[max_ply];
+
 static int lmr_table[64][64];
 
 void init_search_tables(void)
@@ -371,6 +373,11 @@ void init_search_tables(void)
 static inline int futility_margin(int depth)
 {
     return 100 + 80 * depth;
+}
+
+static inline int lmp_margin(int depth, int improving)
+{
+    return (3 + depth * depth) / (2 - improving);
 }
 
 // negamax alpha beta search
@@ -419,10 +426,25 @@ static inline int negamax(int alpha, int beta, int depth, int can_null)
 
     nodes++;
 
-    int static_eval = in_check ? 0 : evaluate();
+    int static_eval = in_check ? eval_none : evaluate();
+    static_evals[ply] = static_eval;
+
+    int improving = 0;
+    if (!in_check)
+    {
+        if (ply >= 2 && static_evals[ply - 2] != eval_none)
+        {
+            improving = static_eval > static_evals[ply - 2];
+        }
+        else if (ply >= 4 && static_evals[ply - 4] != eval_none)
+        {
+            improving = static_eval > static_evals[ply - 4];
+        }
+    }
 
     // reverse futility pruning: static eval is so far above beta that a shallow search won't change that
-    if (!pv_node && !in_check && depth <= 6 && abs(beta) < mate_score && static_eval - 100 * depth >= beta)
+    int rfp_margin = (improving ? 80 : 100) * depth;
+    if (!pv_node && !in_check && depth <= 6 && abs(beta) < mate_score && static_eval - rfp_margin >= beta)
     {
         return beta;
     }
@@ -530,22 +552,28 @@ static inline int negamax(int alpha, int beta, int depth, int can_null)
 
         legal_moves++;
 
-        // futility pruning: skip quiet, non-checking moves when the position is hopeless.
-        // done after make_move so we know whether the move gives check, and after
-        // legal_moves++ so a pruned move can never fake a checkmate/stalemate.
-        if (moves_searched > 0 &&
-            !pv_node && !in_check &&
-            depth <= 3 &&
-            abs(alpha) < mate_score &&
-            static_eval + futility_margin(depth) <= alpha &&
-            get_move_capture(move_list->moves[count]) == 0 &&
-            get_move_promoted(move_list->moves[count]) == 0 &&
-            !is_square_attacked(get_ls1b_index(bitboards[side == white ? piece_K : piece_k]), side ^ 1))
+        int move = move_list->moves[count];
+        int is_quiet = get_move_capture(move) == 0 && get_move_promoted(move) == 0;
+
+        // Quiet move pruning (Futility Pruning & Late Move Pruning) on non-PV nodes.
+        // Checked after make_move so checking moves are never pruned, and after
+        // legal_moves++ so pruned moves can never fake checkmate/stalemate.
+        if (moves_searched > 0 && !pv_node && !in_check && is_quiet && abs(alpha) < mate_score)
         {
-            ply--;
-            repetition_index--;
-            restore_board();
-            continue;
+            int prune_fp = depth <= 3 && static_eval + futility_margin(depth) <= alpha;
+            int prune_lmp = depth <= 5 && quiet_count >= lmp_margin(depth, improving);
+
+            if (prune_fp || prune_lmp)
+            {
+                int gives_check = is_square_attacked(get_ls1b_index(bitboards[side == white ? piece_K : piece_k]), side ^ 1);
+                if (!gives_check)
+                {
+                    ply--;
+                    repetition_index--;
+                    restore_board();
+                    continue;
+                }
+            }
         }
 
         // full depth search
@@ -705,6 +733,11 @@ void search_position(int depth)
     memset(history_moves, 0, sizeof(history_moves));
     memset(pv_table, 0, sizeof(pv_table));
     memset(pv_length, 0, sizeof(pv_length));
+
+    for (int i = 0; i < max_ply; i++)
+    {
+        static_evals[i] = eval_none;
+    }
 
     int alpha = -infinity;
     int beta = infinity;

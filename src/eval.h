@@ -6,6 +6,8 @@
 #include "attacks.h"
 #include "weights.h"
 
+#define eval_none 32000
+
 void eval_set_pawn_cache(int on);
 
 void init_eval();
